@@ -1,0 +1,381 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* Glass effect variables - Light mode */
+    --glass-bg: 0 0% 100% / 0.7;
+    --glass-border: 0 0% 100% / 0.3;
+    --glass-shadow: 222 47% 11% / 0.1;
+    
+    /* Accent colors */
+    --accent-blue: 217 91% 60%;
+    --accent-green: 142 76% 36%;
+    --accent-amber: 38 92% 50%;
+  }
+
+  .dark {
+    --background: 224 71% 4%;
+    --foreground: 213 31% 91%;
+
+    --card: 224 71% 4%;
+    --card-foreground: 213 31% 91%;
+
+    --popover: 224 71% 4%;
+    --popover-foreground: 213 31% 91%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+
+    --secondary: 222 47% 11%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 223 47% 11%;
+    --muted-foreground: 215.4 16.3% 56.9%;
+
+    --accent: 216 34% 17%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 216 34% 17%;
+    --input: 216 34% 17%;
+    --ring: 224 76% 48%;
+
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* Glass effect variables - Dark mode - True glassmorphism */
+    --glass-bg: 220 60% 70% / 0.04;
+    --glass-border: 220 80% 80% / 0.12;
+    --glass-shadow: 220 60% 2% / 0.5;
+    --glass-highlight: 220 70% 90% / 0.08;
+    --glass-inner-glow: 240 60% 80% / 0.03;
+    --glass-tint: 230 70% 60% / 0.06;
+    
+    /* Accent colors */
+    --accent-blue: 217 91% 60%;
+    --accent-green: 142 71% 45%;
+    --accent-amber: 38 92% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Dashboard body background - applied via JS */
+  body.dashboard-body {
+    background-size: cover !important;
+    background-position: center !important;
+    background-attachment: fixed !important;
+    background-repeat: no-repeat !important;
+  }
+}
+
+@layer components {
+  /* True Glassmorphism card effect */
+  .glass-card {
+    @apply relative overflow-hidden rounded-2xl;
+    position: relative;
+    z-index: 10;
+    background: linear-gradient(
+      135deg,
+      hsl(var(--glass-bg)),
+      hsl(var(--glass-tint))
+    );
+    backdrop-filter: blur(40px) saturate(1.4);
+    -webkit-backdrop-filter: blur(40px) saturate(1.4);
+    border: 1px solid hsl(220 80% 80% / 0.18);
+    box-shadow:
+      0 8px 40px hsl(var(--glass-shadow)),
+      0 0 30px hsl(217 91% 60% / 0.25),
+      0 0 80px hsl(230 60% 50% / 0.05),
+      inset 0 0 0 1px hsl(217 91% 70% / 0.08),
+      inset 0 1px 0 hsl(var(--glass-highlight)),
+      inset 0 -1px 0 hsl(220 60% 20% / 0.1);
+  }
+
+
+  /* Internal gradient overlay for glass cards */
+  .glass-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      135deg,
+      hsl(230 70% 80% / 0.06) 0%,
+      transparent 40%,
+      transparent 60%,
+      hsl(260 60% 70% / 0.04) 100%
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .glass-card > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .glass-card-hover {
+    @apply glass-card transition-all duration-300 ease-out;
+  }
+
+  .glass-card-hover:hover {
+    transform: translateY(-6px);
+    background: linear-gradient(
+      135deg,
+      hsl(220 70% 80% / 0.08),
+      hsl(250 60% 70% / 0.05)
+    );
+    box-shadow:
+      0 24px 60px hsl(var(--glass-shadow)),
+      0 0 36px hsl(217 91% 60% / 0.32),
+      0 0 100px hsl(230 60% 50% / 0.08),
+      inset 0 0 0 1px hsl(217 91% 70% / 0.12),
+      inset 0 1px 0 hsl(220 80% 90% / 0.15),
+      inset 0 -1px 0 hsl(220 60% 20% / 0.1);
+    border-color: hsl(217 91% 75% / 0.28);
+  }
+
+
+  /* Glass button */
+  .glass-button {
+    @apply relative overflow-hidden rounded-xl px-4 py-2 font-medium transition-all duration-300;
+    background: hsl(0 0% 100% / 0.1);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid hsl(0 0% 100% / 0.15);
+  }
+
+  .glass-button:hover {
+    background: hsl(0 0% 100% / 0.15);
+    box-shadow: 0 0 20px hsl(var(--accent-blue) / 0.3);
+    transform: scale(1.03);
+  }
+
+  /* Glass icon button */
+  .glass-icon-button {
+    @apply relative flex items-center justify-center rounded-xl w-10 h-10 transition-all duration-300;
+    background: hsl(0 0% 100% / 0.08);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid hsl(0 0% 100% / 0.12);
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.1);
+  }
+
+  .glass-icon-button:hover {
+    background: hsl(0 0% 100% / 0.15);
+    box-shadow: 
+      0 0 20px hsl(var(--accent-blue) / 0.4),
+      inset 0 1px 0 hsl(0 0% 100% / 0.15);
+    transform: scale(1.05);
+  }
+
+  /* Glass tabs */
+  .glass-tabs {
+    @apply inline-flex rounded-xl p-1;
+    background: hsl(0 0% 100% / 0.06);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid hsl(0 0% 100% / 0.1);
+  }
+
+  .glass-tab {
+    @apply px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300;
+  }
+
+  .glass-tab-active {
+    background: hsl(0 0% 100% / 0.12);
+    box-shadow: 
+      0 0 12px hsl(var(--accent-blue) / 0.3),
+      inset 0 1px 0 hsl(0 0% 100% / 0.1);
+    border: 1px solid hsl(0 0% 100% / 0.2);
+  }
+
+  /* Status badges */
+  .status-badge {
+    @apply px-3 py-1 rounded-full text-xs font-medium;
+  }
+
+  .status-badge-active {
+    background: hsl(var(--accent-green) / 0.2);
+    color: hsl(var(--accent-green));
+    border: 1px solid hsl(var(--accent-green) / 0.3);
+  }
+
+  .status-badge-today {
+    background: hsl(var(--accent-blue) / 0.2);
+    color: hsl(142 71% 45%);
+    border: 1px solid hsl(142 71% 45% / 0.3);
+  }
+
+  .status-badge-past {
+    background: hsl(var(--muted) / 0.5);
+    color: hsl(var(--muted-foreground));
+    border: 1px solid hsl(var(--border));
+  }
+
+  /* Primary gradient button */
+  .btn-primary-glow {
+    @apply relative overflow-hidden rounded-xl px-6 py-2.5 font-semibold text-white transition-all duration-300;
+    background: linear-gradient(135deg, hsl(217 91% 55%), hsl(224 76% 48%));
+    box-shadow: 0 4px 16px hsl(217 91% 60% / 0.4);
+  }
+
+  .btn-primary-glow:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 24px hsl(217 91% 60% / 0.5);
+  }
+
+  .btn-primary-glow:active {
+    transform: translateY(0);
+  }
+
+  /* Dashboard wrapper - NO stacking context creation */
+  .dashboard-bg {
+    min-height: 100vh;
+    /* CRITICAL: Do not create stacking context */
+  }
+
+  /* DISABLED: Overlays removed entirely for glassmorphism to work */
+  /* .dashboard-bg::before - REMOVED */
+  /* .dashboard-bg::after - REMOVED */
+
+  /* Glass cards with forced transparency */
+  .glass-card-forced {
+    background-color: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(40px) saturate(1.5);
+    -webkit-backdrop-filter: blur(40px) saturate(1.5);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 1rem;
+    overflow: hidden;
+  }
+
+  /* Subtle neutral glass — no gradient/tint, for calm sections */
+  .glass-subtle {
+    @apply relative rounded-2xl;
+    background: hsl(0 0% 100% / 0.05);
+    backdrop-filter: blur(24px) saturate(1.2);
+    -webkit-backdrop-filter: blur(24px) saturate(1.2);
+    border: 1px solid hsl(217 91% 75% / 0.16);
+    box-shadow:
+      0 8px 32px hsl(220 60% 2% / 0.3),
+      0 0 22px hsl(217 91% 60% / 0.18),
+      inset 0 0 0 1px hsl(217 91% 70% / 0.06);
+  }
+
+  .glass-subtle-hover {
+    @apply glass-subtle transition-all duration-300 ease-out;
+  }
+
+  .glass-subtle-hover:hover {
+    transform: translateY(-3px);
+    border-color: hsl(217 91% 75% / 0.24);
+    box-shadow:
+      0 12px 36px hsl(220 60% 2% / 0.35),
+      0 0 28px hsl(217 91% 60% / 0.24),
+      inset 0 0 0 1px hsl(217 91% 70% / 0.1);
+  }
+
+
+  /* Empty state illustration glow */
+  .empty-state-illustration {
+    filter: drop-shadow(0 0 30px hsl(217 91% 60% / 0.3));
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    background: linear-gradient(135deg, hsl(var(--foreground)) 0%, hsl(var(--muted-foreground)) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .text-gradient-blue {
+    background: linear-gradient(135deg, hsl(217 91% 70%) 0%, hsl(217 91% 55%) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Hide scrollbar visually but keep scroll functional */
+  .scrollbar-hide {
+    -ms-overflow-style: none; /* IE/Edge legacy */
+    scrollbar-width: none; /* Firefox */
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none; /* Chrome/Safari/Edge */
+  }
+
+  /* Global: hide scrollbars across the entire app (visual only, scrolling preserved) */
+  * {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge legacy */
+  }
+  *::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important; /* Chrome/Safari/Edge */
+  }
+}
