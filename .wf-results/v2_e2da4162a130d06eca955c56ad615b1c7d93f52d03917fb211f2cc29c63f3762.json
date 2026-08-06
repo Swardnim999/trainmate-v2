@@ -1,0 +1,189 @@
+{
+  "summary": "TrainMate (train-companion social app): users create journeys (train_number + travel_date + coach + route + college/gender), get matched to other users on the exact same train/date, send pending companion requests, accept/reject them, and accepted companions get a conversation. Blocking and reporting exist as moderation features. Matching SQL is only train_number==train_number && travel_date==travel_date (coach/college/gender/route are client-side display/filters only). Request lifecycle in the DB uses only 'pending'|'accepted'|'rejected' (cancellation = hard DELETE of the row; there is no 'cancelled'/'declined' status). Accepted companions become conversations by inserting directly into the `conversations` table (RLS gate via can_create_conversation/users_share_journey DB functions; the frontend never calls these RPCs directly). Profiles: avatar flow = file -> image crop (ImageCropModal) -> 5MB/type validation -> upload to private 'avatars' bucket -> 1-year signed URL stored on profiles.avatar_url -> cache-busted at render via ?t= timestamp. Blocking inserts into blocked_users(blocker_id, blocked_id); filtering of blocked users from matches/requests is delegated to RLS (is_blocked DB function) — the frontend fetches blockedUsers but never actually filters the matches list with it (it appears only in the effect's dependency array). Reporting inserts into user_reports(reporter_id, reported_id, reason) with an optional free-text reason (no category enum). Note: can_view_journey, can_create_conversation, and is_blocked exist only as generated-type RPC signatures / Postgres RLS helpers; none is invoked from the React code (the only RPC call in scope-adjacent code is soft_delete_conversation in useChat).",
+  "businessRules": [
+    "Request status values (DB column `requests.status`): only 'pending' | 'accepted' | 'rejected'. requestStatusSchema in validations.ts = z.enum(['pending','accepted','rejected']). There is NO 'cancelled' or 'declined' status.",
+    "Frontend derived UI statuses (RequestStatus in useRequests): 'none' | 'outgoing_pending' | 'incoming_pending' | 'accepted' | 'rejected'. getRequestStatus computes these from the DB status + request direction.",
+    "Cancelling a request = hard DELETE of the row (useRequests.cancelRequest: .delete().eq('id', requestId)), not a status transition. After cancel the other user can no longer see the request and a new request can be sent.",
+    "A 'rejected' request can be re-sent: renderActionButton shows 'Send Request' for both 'rejected' and 'none' statuses (rejection does not create a cooldown or block).",
+    "Request direction: sender = from_user_id, receiver = to_user_id. 'incoming_pending' means to_user_id === current user; 'outgoing_pending' means from_user_id === current user.",
+    "Accepting (incoming) updates requests.status to 'accepted' (.eq('id', requestId)); the recipient is the one allowed to accept/reject in the UI. Rejecting updates status to 'rejected'.",
+    "On accept from the Requests page, a conversation is immediately created and the user is navigated to /chat/:id. On accept from the Matched page, ONLY the status is updated; the conversation is created lazily when the user clicks Chat.",
+    "Expired-request cleanup: on Requests page mount, any request where current user is the sender (from_user_id), status='pending', and travel_date < (today - 2 days) is hard-deleted. Only sender-side expired requests are cleaned.",
+    "Journey matching SQL: journeys.select('*').eq('train_number', X).eq('travel_date', Y).neq('user_id', currentUser). Matching is EXACT train_number + EXACT travel_date only; coach, college, gender, boarding/destination station are NOT part of the match query — they are displayed and filtered client-side on the Matched page.",
+    "A journey is not matchable once 'past' (getJourneyStatus(travel_date) === 'past' blocks findCompanionsForJourney with a toast). 'today' journeys ARE still matchable.",
+    "Journey status computed in frontend from travel_date vs local today (midnight-normalized): equal => 'today', less => 'past', greater => 'upcoming'. Active tab shows today + upcoming (today first); Past tab shows past.",
+    "Unverified train rule: if the autocomplete did not verify the train (isVerified=false), the raw entry is INSERTED into unverified_trains(train_number, train_name, submitted_by, entered_value, normalized_value=lowercase trimmed) AND the journey is still created anyway (unverified entry does not block journey creation).",
+    "Journey form validation (journeySchema): name 1..100; trainNumber 1..20 and regex /^[A-Za-z0-9\\s-]+$/; travelDate cannot be in the past (>= local today); coach max 10 optional; boarding/destination 1..100; college max 200 optional; gender enum ['male','female','other','prefer-not-to-say',''] optional.",
+    "getRequestStatus(otherUserId, trainNumber, travelDate): matches a request only when both directions of the pair match AND, when train/date args are provided, train_number===trainNumber && travel_date===travelDate. If no train/date given it returns the FIRST request between the pair regardless of journey.",
+    "Avatar upload pipeline: validate image/* + <=5MB -> ImageCropModal crop -> new File(croppedBlob,'avatar.jpg',image/jpeg) -> storage.remove([`${user.id}/avatar.jpg`]) then upload with upsert to private 'avatars' bucket -> createSignedUrl(path, 365 days) -> profiles.update({avatar_url: signedUrl}). Rendered with cache-buster ?t=avatarVersion; refreshAvatar() bumps avatarVersion after upload.",
+    "Blocking: blocked_users.insert({blocker_id: user.id, blocked_id}) to block; delete eq blocker_id+blocked_id to unblock. Frontend fetches blocked_id list per blocker but does NOT filter the Matched list client-side (blockedUsers only appears in the filter effect's deps, not the body) — enforcement is delegated to RLS via the is_blocked DB function.",
+    "Reporting: user_reports.insert({reporter_id: user.id, reported_id, reason: reason.trim() || null}). Reason is optional free-text; no reason category enum is captured.",
+    "TrainAutocomplete search: trains.select('train_number, train_name').eq('active', true).or(train_number ilike %q%, train_name ilike %q%).limit(15), debounced 300ms, minimum 2 chars. Selecting a suggestion sets isVerified=true; typing free text sets isVerified=false.",
+    "Profiles of OTHER users never expose email: ProfileModal selects only name, college, gender, bio, hobbies, avatar_url (deliberately excludes email). Own email is shown from the auth session (user.email), not from profiles.",
+    "Edit profile saves only: name (required, trimmed), bio (trimmed or null), hobbies (trimmed or null), college (trimmed or null), gender (enum or null). avatar_url is only changed through the avatar upload path.",
+    "Conversation creation inserts participants (array), participant_names (json object keyed by user id), train_number, travel_date, last_message='', last_message_time=now. Reuse logic: Matched page reuses an existing conversation when both participant ids are in the loaded conversations list before creating a new one.",
+    "Message validation (messageSchema): text trim 1..2000 chars. Text message sends also bump conversations.last_message (substring 255) and last_message_time."
+  ],
+  "dataFlows": [
+    {
+      "trigger": "App load / auth user changes (useProfile)",
+      "supabaseCalls": [
+        "profiles.select('id, name, bio, hobbies, college, gender, avatar_url').eq('id', user.id).single()",
+        "profiles.update(updates).eq('id', user.id)  [name, bio, hobbies, college, gender, avatar_url]"
+      ],
+      "uiBehavior": "Own profile loaded into state; PGRST116 (no row) tolerated as null profile. updateProfile merges into local state. Email is NOT selected from profiles (comes from auth session)."
+    },
+    {
+      "trigger": "View another user's profile (ProfileModal open)",
+      "supabaseCalls": [
+        "profiles.select('name, college, gender, bio, hobbies, avatar_url').eq('id', userId).single()"
+      ],
+      "uiBehavior": "Full profile merged over the journey-card stub; email deliberately omitted. Hobbies rendered as badges split on comma; gender 'prefer_not_to_say' formatted to 'Prefer not to say'; Same College / Same Coach badges computed case-insensitively/exactly."
+    },
+    {
+      "trigger": "EditProfileModal: avatar file selected",
+      "supabaseCalls": [
+        "(no DB call; FileReader + ImageCropModal)",
+        "avatars bucket: remove([`${user.id}/avatar.<ext>`]) then upload(fileName, file, {upsert:true})",
+        "avatars.createSignedUrl(fileName, 60*60*24*365)",
+        "profiles.update({avatar_url: signedUrl}).eq('id', user.id)"
+      ],
+      "uiBehavior": "Validates image/* type and <=5MB, opens crop modal; on crop complete previews blob, uploads as avatar.jpg, shows spinner, refreshAvatar() bumps cache-buster, refetches profile, toasts success; on failure restores previous avatar_url."
+    },
+    {
+      "trigger": "EditProfileModal: Save Changes",
+      "supabaseCalls": [
+        "profiles.update({name, bio, hobbies, college, gender}).eq('id', user.id)"
+      ],
+      "uiBehavior": "Name required (client-side check before submit); empty bio/hobbies/college coerced to null; gender select uses 'prefer_not_to_say' (underscore) value; toasts and closes on success."
+    },
+    {
+      "trigger": "Dashboard: Plan Journey submit",
+      "supabaseCalls": [
+        "unverified_trains.insert({train_number, train_name, submitted_by, entered_value, normalized_value: lower+trim})  [only when isTrainVerified === false]",
+        "journeys.insert({user_id, user_name, train_number, train_name, travel_date, coach, boarding_station, destination_station, college, gender}).select().single()"
+      ],
+      "uiBehavior": "journeySchema.safeParse gates submission (first error toasts). On success form resets, dialog closes, and findCompanionsForJourney(data) is invoked immediately (auto-navigates to /matched)."
+    },
+    {
+      "trigger": "Dashboard: load journeys",
+      "supabaseCalls": [
+        "journeys.select('*').eq('user_id', user.id).order('travel_date', {ascending: true})",
+        "requests.select('*', {count:'exact', head:true}).eq('to_user_id', user.id).eq('status','pending')"
+      ],
+      "uiBehavior": "Journeys categorized into today/past/upcoming by travel_date vs local midnight. Bell badge shows count of incoming pending requests. Active tab = today+upcoming, Past tab = past. Delete requires AlertDialog confirm then journeys.delete().eq('id')."
+    },
+    {
+      "trigger": "Dashboard: Find Companions on a journey card",
+      "supabaseCalls": [
+        "journeys.select('*').eq('train_number', journey.train_number).eq('travel_date', journey.travel_date).neq('user_id', user.id)"
+      ],
+      "uiBehavior": "Aborts with toast if journey is past. Formats matches into Match objects (id,userId,userName,trainNumber,trainName,travelDate,coach,boardingStation,destinationStation,college,gender), writes localStorage 'journeyData' + 'matches', toasts count, navigates to /matched."
+    },
+    {
+      "trigger": "TrainAutocomplete: typing (debounced 300ms, >=2 chars)",
+      "supabaseCalls": [
+        "trains.select('train_number, train_name').eq('active', true).or('train_number.ilike.%q%,train_name.ilike.%q%').limit(15)"
+      ],
+      "uiBehavior": "Shows suggestion dropdown (keyboard nav: arrows/Enter/Escape, click-outside close). Selecting suggestion sets verified=true and fires onChange(train_number, train_name, true). Free text marks isVerified=false and shows 'Train not found in database. Entry will be saved for review.' warning."
+    },
+    {
+      "trigger": "Matched page mount (navigated from Dashboard)",
+      "supabaseCalls": [
+        "(no Supabase call; reads localStorage 'journeyData' and 'matches')"
+      ],
+      "uiBehavior": "Loads journey + matches from localStorage. Applies client-side filters: coach exact, college substring (case-insensitive), gender exact, sameCollege exact-case-insensitive vs own college, sameCoach exact vs own coach. No-journey state shows EmptyState with 'Go to Dashboard'."
+    },
+    {
+      "trigger": "Matched: Send Request button",
+      "supabaseCalls": [
+        "requests.insert({from_user_id, from_name: journeyData.name, to_user_id, to_name, train_number, travel_date, boarding_station, destination_station, status: 'pending'})"
+      ],
+      "uiBehavior": "Button disabled while sending. On success toasts 'Request sent' and re-fetches requests (getRequestStatus then flips the button to disabled 'Requested'). from_email/to_email are NOT populated."
+    },
+    {
+      "trigger": "Matched: Accept on an incoming pending match",
+      "supabaseCalls": [
+        "requests.update({status:'accepted'}).eq('id', requestId)"
+      ],
+      "uiBehavior": "Toasts 'You can now chat with...' and re-fetches requests. No conversation created here; the Chat button appears and creates the conversation lazily."
+    },
+    {
+      "trigger": "Matched: Chat button on an accepted match",
+      "supabaseCalls": [
+        "conversations.insert({participants:[user.id,match.userId], participant_names:{user.id:name, match.userId:userName}, train_number, travel_date, last_message:'', last_message_time}).select().single()  [only if no existing conversation with both participants]",
+        "conversations.select('*').contains('participants', [user.id]).order('last_message_time', {ascending:false})  [for existing-conversation lookup]"
+      ],
+      "uiBehavior": "Reuses existing conversation when both participant ids found; otherwise creates one. Navigates to /chat/:conversationId with state {otherUser, trainNumber, travelDate}."
+    },
+    {
+      "trigger": "Requests page: accept incoming request",
+      "supabaseCalls": [
+        "requests.update({status:'accepted'}).eq('id', requestId)",
+        "profiles.select('name').eq('id', user.id).maybeSingle()",
+        "conversations.insert({participants:[user.id, request.from_user_id], participant_names, train_number, travel_date, last_message:'', last_message_time}).select().single()"
+      ],
+      "uiBehavior": "Accepts, builds display names (own from profile or 'You', other from from_name or 'User'), creates the conversation, navigates to /chat/:id with otherUser {id, from_name, from_email}. If conversation creation fails after accept, toasts 'Request accepted but failed to create chat. Go to Chats to start messaging.'"
+    },
+    {
+      "trigger": "Requests page: reject incoming / cancel outgoing",
+      "supabaseCalls": [
+        "reject: requests.update({status:'rejected'}).eq('id', requestId)",
+        "cancel: requests.delete().eq('id', requestId)"
+      ],
+      "uiBehavior": "Reject toasts 'Request rejected' and updates local list. Cancel requires AlertDialog confirm ('This will withdraw your travel companion request. You can send a new request later.') then hard-deletes the row and removes it from local state."
+    },
+    {
+      "trigger": "Requests page mount (cleanup expired)",
+      "supabaseCalls": [
+        "requests.select('id').eq('from_user_id', user.id).eq('status','pending').lt('travel_date', <today-2d>)",
+        "requests.delete().in('id', ids)"
+      ],
+      "uiBehavior": "Logs 'Cleaned up N expired request(s)'. Runs once per mount; only sender-side pending requests older than travel_date+2 days removed."
+    },
+    {
+      "trigger": "Matched ProfileModal: Block button",
+      "supabaseCalls": [
+        "blocked_users.insert({blocker_id: user.id, blocked_id})"
+      ],
+      "uiBehavior": "Adds id to local blockedUsers list, toasts 'You will no longer see this user in matches.', closes modal. No explicit re-filter of the matches list (blockedUsers is in the filter effect deps but unused in its body)."
+    },
+    {
+      "trigger": "Matched ProfileModal: Report button",
+      "supabaseCalls": [
+        "user_reports.insert({reporter_id: user.id, reported_id, reason: reason.trim() || null})"
+      ],
+      "uiBehavior": "Opens ReportDialog with free-text reason (optional). Submit toasts 'Report submitted' and resets reason; failure toasts error."
+    },
+    {
+      "trigger": "Chat: send message / upload attachment",
+      "supabaseCalls": [
+        "messages.insert({conversation_id, sender_id, sender_name, text, attachment_url, attachment_type, attachment_name, attachment_size})",
+        "conversations.update({last_message: substring(255), last_message_time}).eq('id', conversationId)",
+        "chat-attachments bucket: upload(path=conversationId/<uuid>.<ext>, {contentType, upsert:false}) + createSignedUrl(path, 1yr)  [attachments]",
+        "last_read.upsert({user_id, conversation_id, timestamp}, onConflict 'user_id,conversation_id')  [mark as read]"
+      ],
+      "uiBehavior": "messageSchema validates text (1..2000); attachment skips schema but enforces 2000-char cap. Live INSERT subscription via postgres_changes appends messages. last_read channel updates read receipts. (Conversations list re-fetched on any conversations change.)"
+    }
+  ],
+  "edgeCases": [
+    "can_view_journey, can_create_conversation, is_blocked, can_view_profile, is_conversation_participant, users_share_journey exist as Supabase RPC signatures in types.ts but are NEVER called from React. They are Postgres RLS helpers; enforcement is server-side. The only RPC the frontend actually invokes (chat scope) is soft_delete_conversation.",
+    "Blocked users are not filtered out of the Matched list client-side: the filter effect depends on blockedUsers but never references it in the body, so a blocked match still renders until RLS hides their journey row on the next match query.",
+    "Rejected requests allow re-sending (no cooldown/flag). Cancelled requests disappear entirely (hard delete), so the pair can immediately re-request.",
+    "getRequestStatus without train/date returns the FIRST request between the pair regardless of journey, so on the Matched page a request from a DIFFERENT train/date could surface as the status for the current journey if the caller passes undefined train/date (Matched always passes journeyData train/date, so this is mitigated there).",
+    "cleanupExpiredRequests only prunes requests the current user SENT (from_user_id) — incoming expired pending requests from others are never cleaned by this hook.",
+    "Dashboard coach values differ from Matched filter values: journey form uses '1A','2A','3A','3E','EC','CC','SL','2S','UR/GN'; Matched coach filter dropdown uses 'S1','B1','A1','2A','3A','SL','CC','2S'. Filter values like S1/B1/A1 never appear in the journeys form, so those coach filters would rarely match.",
+    "Gender value inconsistency: Dashboard journey form stores 'prefer-not-to-say' (hyphen, matches journeySchema); EditProfileModal stores 'prefer_not_to_say' (underscore) into profiles. Both ProfileModal and ViewProfileModal format 'prefer_not_to_say'; only ProfileModal/ViewProfile handle it — the hyphenated variant is not specially formatted.",
+    "Avatar upload filename uses the raw file extension (e.g. .png, .jpg from file.name), while EditProfileModal always creates the cropped File named 'avatar.jpg' with image/jpeg — so the stored path extension depends on the upload path used (cropped path is always .jpg).",
+    "A train typed manually that EXISTS in the trains table but is not selected from suggestions is still treated as unverified (isVerified=false) and logged to unverified_trains.",
+    "Journey insert allows duplicate journeys (same user, same train/date) — no dedup; multiple identical journey rows are permitted.",
+    "Journeys on 'today' are still matchable (only 'past' is blocked), meaning a user can still find companions on the day of travel.",
+    "profiles.select for own profile tolerates PGRST116 (missing row) by setting profile to null without error; all other read paths (fetchUserProfile, ProfileModal) return null/merge gracefully on error.",
+    "If a user accepts a request but the conversation insert fails (e.g. RLS can_create_conversation denied), the request remains 'accepted' and the user is routed to the Chats list instead of the chat — an accepted companion with no conversation is possible.",
+    "localStorage journeyData/matches become stale if the user changes journeys without re-planning; navigating to /matched outside the Dashboard flow shows 'No journey data found'.",
+    "Report reason has no length or content validation and no category; empty reason is stored as NULL.",
+    "Blocked/unblocked are not mirrored to the requests table — a blocked user's existing accepted conversations/requests are not cleaned by the frontend.",
+    "Emails on requests (from_email/to_email) are declared in the Request interface but never written by the frontend insert, so they remain null."
+  ],
+  "notes": "Tables read/written: profiles (read own + others, update name/bio/hobbies/college/gender/avatar_url; email never written/read from this table), journeys (insert/list/delete/match by user, train_number, travel_date), requests (insert pending; update to accepted/rejected; delete to cancel; select all involving user; count incoming pending; cleanup sender-side expired), blocked_users (insert/delete/select blocked_id by blocker_id), user_reports (insert reporter_id/reported_id/reason), trains (read active for autocomplete), unverified_trains (insert unverified train entries), conversations (insert + select contains participant; update last_message/last_message_time), messages (insert, live subscribe INSERT), last_read (upsert/select). Storage buckets: 'avatars' (private, 1-year signed URL stored on profile; cache-busted with ?t=) and 'chat-attachments' (private, 1-year signed URL). RLS helper functions referenced by generated types (can_view_journey, can_create_conversation, can_view_profile, is_blocked, is_blocked_in_conversation, is_conversation_participant, users_share_journey, soft_delete_conversation) are not invoked from the React code in scope; RLS is the enforcement layer for journey visibility and conversation creation. Files analyzed: useProfile.ts, useRequests.ts, useBlockedUsers.ts, Dashboard.tsx, Matched.tsx, Requests.tsx, ProfileModal.tsx, EditProfileModal.tsx, ViewProfileModal.tsx, TrainAutocomplete.tsx, ReportDialog.tsx, validations.ts (plus useChat.tsx and supabase types.ts for the conversation/RPC context)."
+}

@@ -1,0 +1,14 @@
+// TrainMate v2 — Prisma schema
+//
+// Sprint 1: foundation only. The datasource is declared so `prisma generate`
+// and `prisma migrate` work out of the box. No models yet — the 1:1 port of
+// the Postgres schema lands in Phase 2.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

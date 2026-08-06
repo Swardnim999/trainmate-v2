@@ -1,0 +1,503 @@
+{
+  "calls": [
+    {
+      "file": "src/hooks/useAuth.tsx",
+      "line": 23,
+      "api": "supabase.auth.onAuthStateChange",
+      "operation": "onAuthStateChange",
+      "detail": "Subscribe to auth state changes; callback sets session/user in AuthContext and flips loading false. subscription.unsubscribe() on cleanup. Signature: (event, session) => void."
+    },
+    {
+      "file": "src/hooks/useAuth.tsx",
+      "line": 32,
+      "api": "supabase.auth.getSession",
+      "operation": "getSession",
+      "detail": "getSession().then(({ data: { session } }) => set session/user) — restore existing session on mount. Returns Session | null."
+    },
+    {
+      "file": "src/hooks/useAuth.tsx",
+      "line": 42,
+      "api": "supabase.auth.signOut",
+      "operation": "signOut",
+      "detail": "logout(): await supabase.auth.signOut(). No options."
+    },
+    {
+      "file": "src/hooks/useAuth.tsx",
+      "line": 46,
+      "api": "supabase.auth.signInWithPassword",
+      "operation": "signInWithPassword",
+      "detail": "signIn(email, password): { email, password }. Returns { error }."
+    },
+    {
+      "file": "src/hooks/useAuth.tsx",
+      "line": 56,
+      "api": "supabase.auth.signUp",
+      "operation": "signUp",
+      "detail": "signUp(email, password): { email, password, options: { emailRedirectTo: window.location.origin + '/' } }. Returns { error }."
+    },
+    {
+      "file": "src/hooks/useProfile.ts",
+      "line": 30,
+      "api": "supabase.from('profiles').select().eq().single()",
+      "table": "profiles",
+      "operation": "select",
+      "detail": "select('id, name, bio, hobbies, college, gender, avatar_url') .eq('id', user.id) .single(). Own profile fetch. Note: email NOT selected though interface has it. Handles PGRST116 (no row)."
+    },
+    {
+      "file": "src/hooks/useProfile.ts",
+      "line": 68,
+      "api": "supabase.from('profiles').update().eq()",
+      "table": "profiles",
+      "operation": "update",
+      "detail": "update(updates) where updates: Partial<Profile> (id, name, bio, hobbies, college, gender, avatar_url) .eq('id', user.id). updateProfile()."
+    },
+    {
+      "file": "src/hooks/useProfile.ts",
+      "line": 91,
+      "api": "supabase.storage.from('avatars').remove()",
+      "table": "avatars",
+      "operation": "remove",
+      "detail": "storage.from('avatars').remove([fileName]) where fileName = `${user.id}/avatar.${fileExt}`. Deletes existing avatar before upload (ignores error)."
+    },
+    {
+      "file": "src/hooks/useProfile.ts",
+      "line": 96,
+      "api": "supabase.storage.from('avatars').upload()",
+      "table": "avatars",
+      "operation": "upload",
+      "detail": "storage.from('avatars').upload(fileName, file, { upsert: true }). fileName = `${user.id}/avatar.${fileExt}`. File is the (possibly cropped) image blob."
+    },
+    {
+      "file": "src/hooks/useProfile.ts",
+      "line": 106,
+      "api": "supabase.storage.from('avatars').createSignedUrl()",
+      "table": "avatars",
+      "operation": "createSignedUrl",
+      "detail": "storage.from('avatars').createSignedUrl(fileName, 60*60*24*365) — 1-year signed URL. Bucket is private. Signed URL stored onto profiles.avatar_url via updateProfile({ avatar_url: signedUrl })."
+    },
+    {
+      "file": "src/hooks/useProfile.ts",
+      "line": 126,
+      "api": "supabase.from('profiles').select().eq().single()",
+      "table": "profiles",
+      "operation": "select",
+      "detail": "select('id, name, bio, hobbies, college, gender, avatar_url') .eq('id', userId) .single(). fetchUserProfile() — fetches ANOTHER user's profile (RLS-protected)."
+    },
+    {
+      "file": "src/hooks/useRequests.ts",
+      "line": 37,
+      "api": "supabase.from('requests').select().or().order()",
+      "table": "requests",
+      "operation": "select",
+      "detail": "select('*') .or(`from_user_id.eq.${user.id},to_user_id.eq.${user.id}`) .order('created_at', { ascending: false }). fetchRequests() — all requests involving current user (either direction)."
+    },
+    {
+      "file": "src/hooks/useRequests.ts",
+      "line": 101,
+      "api": "supabase.from('requests').delete().eq()",
+      "table": "requests",
+      "operation": "delete",
+      "detail": "delete() .eq('id', requestId). cancelRequest()."
+    },
+    {
+      "file": "src/hooks/useRequests.ts",
+      "line": 118,
+      "api": "supabase.from('requests').update().eq()",
+      "table": "requests",
+      "operation": "update",
+      "detail": "update({ status: 'accepted' }) .eq('id', requestId). acceptRequest()."
+    },
+    {
+      "file": "src/hooks/useRequests.ts",
+      "line": 137,
+      "api": "supabase.from('requests').update().eq()",
+      "table": "requests",
+      "operation": "update",
+      "detail": "update({ status: 'rejected' }) .eq('id', requestId). rejectRequest()."
+    },
+    {
+      "file": "src/hooks/useRequests.ts",
+      "line": 164,
+      "api": "supabase.from('requests').select().eq().eq().lt()",
+      "table": "requests",
+      "operation": "select",
+      "detail": "select('id') .eq('from_user_id', user.id) .eq('status', 'pending') .lt('travel_date', cutoffDate). cleanupExpiredRequests() — cutoffDate = (today - 2 days) as 'YYYY-MM-DD'."
+    },
+    {
+      "file": "src/hooks/useRequests.ts",
+      "line": 175,
+      "api": "supabase.from('requests').delete().in()",
+      "table": "requests",
+      "operation": "delete",
+      "detail": "delete() .in('id', ids). Bulk delete of expired pending request ids returned by the prior select."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 48,
+      "api": "supabase.from('messages').select().eq().order()",
+      "table": "messages",
+      "operation": "select",
+      "detail": "select('*') .eq('conversation_id', conversationId) .order('created_at', { ascending: true }). Fetch full message history for a conversation."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 63,
+      "api": "supabase.channel('messages-${conversationId}').on().subscribe()",
+      "operation": "subscribe",
+      "detail": "channel(`messages-${conversationId}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` }, cb).subscribe(). cb appends payload.new to messages state (dedupes by id)."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 79,
+      "api": "supabase.removeChannel(channel)",
+      "operation": "removeChannel",
+      "detail": "Cleanup for the messages-${conversationId} channel."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 93,
+      "api": "supabase.from('last_read').select().eq().eq().maybeSingle()",
+      "table": "last_read",
+      "operation": "select",
+      "detail": "select('timestamp') .eq('conversation_id', conversationId) .eq('user_id', otherUserId) .maybeSingle(). Fetch other user's last-read timestamp (read receipts)."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 104,
+      "api": "supabase.channel('last-read-${conversationId}-${otherUserId}').on().subscribe()",
+      "operation": "subscribe",
+      "detail": "channel(`last-read-${conversationId}-${otherUserId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'last_read', filter: `conversation_id=eq.${conversationId}` }, cb).subscribe(). cb reads payload.new||payload.old, updates otherUserLastRead when row.user_id === otherUserId."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 120,
+      "api": "supabase.removeChannel(channel)",
+      "operation": "removeChannel",
+      "detail": "Cleanup for the last-read channel (also sets cancelled flag)."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 129,
+      "api": "supabase.from('conversations').select().contains().order()",
+      "table": "conversations",
+      "operation": "select",
+      "detail": "select('*') .contains('participants', [user.id]) .order('last_message_time', { ascending: false }). Fetch all conversations the user is a participant in. Also feeds calculateUnreadCounts."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 145,
+      "api": "supabase.channel('conversations-updates-${user.id}').on().subscribe()",
+      "operation": "subscribe",
+      "detail": "channel(`conversations-updates-${user.id}`).on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, () => fetchConversations()).subscribe(). NO row filter — refetches all conversations on any change."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 151,
+      "api": "supabase.removeChannel(channel)",
+      "operation": "removeChannel",
+      "detail": "Cleanup for the conversations-updates channel."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 161,
+      "api": "supabase.from('last_read').select().eq().eq().maybeSingle()",
+      "table": "last_read",
+      "operation": "select",
+      "detail": "select('timestamp') .eq('user_id', user.id) .eq('conversation_id', conv.id) .maybeSingle(). Per-conversation last-read for current user (inside calculateUnreadCounts loop)."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 171,
+      "api": "supabase.from('messages').select(count:head).eq().neq()",
+      "table": "messages",
+      "operation": "select",
+      "detail": "select('*', { count: 'exact', head: true }) .eq('conversation_id', conv.id) .neq('sender_id', user.id). Unread count when user has NO last_read row."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 178,
+      "api": "supabase.from('messages').select(count:head).eq().gt().neq()",
+      "table": "messages",
+      "operation": "select",
+      "detail": "select('*', { count: 'exact', head: true }) .eq('conversation_id', conv.id) .gt('created_at', lastReadTime) .neq('sender_id', user.id). Unread count when last_read exists (messages after lastReadTime)."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 214,
+      "api": "supabase.from('profiles').select().eq().maybeSingle()",
+      "table": "profiles",
+      "operation": "select",
+      "detail": "select('name') .eq('id', user.id) .maybeSingle(). Fetch own display name to use as messages.sender_name."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 221,
+      "api": "supabase.from('messages').insert()",
+      "table": "messages",
+      "operation": "insert",
+      "detail": "insert({ conversation_id, sender_id, sender_name, text, attachment_url, attachment_type, attachment_name, attachment_size }) cast as any. sendMessage() — no .select()."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 240,
+      "api": "supabase.from('conversations').update().eq()",
+      "table": "conversations",
+      "operation": "update",
+      "detail": "update({ last_message: (text|preview).substring(0,255), last_message_time: new Date().toISOString() }) .eq('id', conversationId). Update conversation preview after sendMessage."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 261,
+      "api": "supabase.storage.from('chat-attachments').upload()",
+      "table": "chat-attachments",
+      "operation": "upload",
+      "detail": "storage.from('chat-attachments').upload(path, file, { contentType: file.type, upsert: false }). path = `${conversationId}/${crypto.randomUUID()}.${ext}`. uploadAttachment()."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 266,
+      "api": "supabase.storage.from('chat-attachments').createSignedUrl()",
+      "table": "chat-attachments",
+      "operation": "createSignedUrl",
+      "detail": "storage.from('chat-attachments').createSignedUrl(path, 60*60*24*365) — 1-year signed URL returned as attachment.url."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 284,
+      "api": "supabase.from('last_read').upsert()",
+      "table": "last_read",
+      "operation": "upsert",
+      "detail": "upsert({ user_id: user.id, conversation_id, timestamp: new Date().toISOString() }, { onConflict: 'user_id,conversation_id' }). markAsRead()."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 305,
+      "api": "supabase.from('conversations').insert().select().single()",
+      "table": "conversations",
+      "operation": "insert",
+      "detail": "insert({ participants: participantIds, participant_names: participantNames, train_number, travel_date, last_message: '', last_message_time: ISO }) .select() .single(). createConversation() — returns new row id."
+    },
+    {
+      "file": "src/hooks/useChat.tsx",
+      "line": 330,
+      "api": "supabase.rpc('soft_delete_conversation')",
+      "table": "soft_delete_conversation",
+      "operation": "rpc",
+      "detail": "rpc('soft_delete_conversation' as any, { conv_id: conversationId, user_id_to_add: user.id }). deleteChat() — soft-delete (hides conversation for this user). Only RPC called in the frontend."
+    },
+    {
+      "file": "src/hooks/usePresence.ts",
+      "line": 20,
+      "api": "supabase.channel('presence-${conversationId}').on().on().on().on().subscribe()",
+      "operation": "subscribe",
+      "detail": "channel(`presence-${conversationId}`, { config: { presence: { key: user.id } } }).on('presence', {event:'sync'}).on('presence', {event:'join'}).on('presence', {event:'leave'}).on('broadcast', {event:'typing'}, typingIndicatorCb).subscribe(async (status) => { if (status==='SUBSCRIBED') await channel.track({ online_at: ISO }); })."
+    },
+    {
+      "file": "src/hooks/usePresence.ts",
+      "line": 66,
+      "api": "supabase.removeChannel(channel)",
+      "operation": "removeChannel",
+      "detail": "Cleanup for the presence channel."
+    },
+    {
+      "file": "src/hooks/usePresence.ts",
+      "line": 73,
+      "api": "supabase.channel('presence-${conversationId}').send()",
+      "operation": "send",
+      "detail": "channel(`presence-${conversationId}`).send({ type: 'broadcast', event: 'typing', payload: { userId: user.id } }). sendTypingIndicator() — opens a fresh ephemeral channel with the same name and broadcasts. (Note: this channel is never removed/subscribed.)"
+    },
+    {
+      "file": "src/hooks/useAcceptedCompanions.ts",
+      "line": 47,
+      "api": "supabase.from('requests').select().eq().eq()",
+      "table": "requests",
+      "operation": "select",
+      "detail": "select('*') .eq('from_user_id', user.id) .eq('status', 'accepted'). Accepted requests the current user SENT."
+    },
+    {
+      "file": "src/hooks/useAcceptedCompanions.ts",
+      "line": 57,
+      "api": "supabase.from('requests').select().eq().eq()",
+      "table": "requests",
+      "operation": "select",
+      "detail": "select('*') .eq('to_user_id', user.id) .eq('status', 'accepted'). Accepted requests the current user RECEIVED."
+    },
+    {
+      "file": "src/hooks/useAcceptedCompanions.ts",
+      "line": 75,
+      "api": "supabase.channel('requests-changes').on().on().subscribe()",
+      "operation": "subscribe",
+      "detail": "channel('requests-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'requests', filter: `from_user_id=eq.${user.id}` }, () => fetchAcceptedRequests()).on('postgres_changes', { event: '*', schema: 'public', table: 'requests', filter: `to_user_id=eq.${user.id}` }, () => fetchAcceptedRequests()).subscribe(). Single channel, two postgres_changes handlers."
+    },
+    {
+      "file": "src/hooks/useAcceptedCompanions.ts",
+      "line": 100,
+      "api": "supabase.removeChannel(channel)",
+      "operation": "removeChannel",
+      "detail": "Cleanup for the requests-changes channel."
+    },
+    {
+      "file": "src/hooks/useBlockedUsers.ts",
+      "line": 19,
+      "api": "supabase.from('blocked_users').select().eq()",
+      "table": "blocked_users",
+      "operation": "select",
+      "detail": "select('blocked_id') .eq('blocker_id', user.id). Fetch list of blocked user ids."
+    },
+    {
+      "file": "src/hooks/useBlockedUsers.ts",
+      "line": 40,
+      "api": "supabase.from('blocked_users').insert()",
+      "table": "blocked_users",
+      "operation": "insert",
+      "detail": "insert({ blocker_id: user.id, blocked_id: blockedId }). blockUser()."
+    },
+    {
+      "file": "src/hooks/useBlockedUsers.ts",
+      "line": 57,
+      "api": "supabase.from('blocked_users').delete().eq().eq()",
+      "table": "blocked_users",
+      "operation": "delete",
+      "detail": "delete() .eq('blocker_id', user.id) .eq('blocked_id', blockedId). unblockUser()."
+    },
+    {
+      "file": "src/pages/Dashboard.tsx",
+      "line": 114,
+      "api": "supabase.from('requests').select(count:head).eq().eq()",
+      "table": "requests",
+      "operation": "select",
+      "detail": "select('*', { count: 'exact', head: true }) .eq('to_user_id', user.id) .eq('status', 'pending'). Pending request badge count."
+    },
+    {
+      "file": "src/pages/Dashboard.tsx",
+      "line": 132,
+      "api": "supabase.from('journeys').select().eq().order()",
+      "table": "journeys",
+      "operation": "select",
+      "detail": "select('*') .eq('user_id', user.id) .order('travel_date', { ascending: true }). loadAllJourneys() — all journeys for current user."
+    },
+    {
+      "file": "src/pages/Dashboard.tsx",
+      "line": 163,
+      "api": "supabase.from('journeys').select().eq().eq().neq()",
+      "table": "journeys",
+      "operation": "select",
+      "detail": "select('*') .eq('train_number', journey.train_number) .eq('travel_date', journey.travel_date) .neq('user_id', user.id). findCompanionsForJourney() — potential matches on same train+date excluding self. Results stored to localStorage 'matches'."
+    },
+    {
+      "file": "src/pages/Dashboard.tsx",
+      "line": 249,
+      "api": "supabase.from('unverified_trains').insert()",
+      "table": "unverified_trains",
+      "operation": "insert",
+      "detail": "insert({ train_number, train_name: trainName||null, submitted_by: user.id, entered_value: rawInput, normalized_value: rawInput.toLowerCase().trim() }). Only when train is NOT verified (isTrainVerified false)."
+    },
+    {
+      "file": "src/pages/Dashboard.tsx",
+      "line": 260,
+      "api": "supabase.from('journeys').insert().select().single()",
+      "table": "journeys",
+      "operation": "insert",
+      "detail": "insert({ user_id, user_name: validatedData.name, train_number, train_name, travel_date, coach, boarding_station, destination_station, college, gender }) .select() .single(). handleSubmit() — create journey then auto-find companions on the returned row."
+    },
+    {
+      "file": "src/pages/Dashboard.tsx",
+      "line": 313,
+      "api": "supabase.from('journeys').delete().eq()",
+      "table": "journeys",
+      "operation": "delete",
+      "detail": "delete() .eq('id', journeyId). deleteJourney()."
+    },
+    {
+      "file": "src/pages/Matched.tsx",
+      "line": 147,
+      "api": "supabase.from('requests').insert()",
+      "table": "requests",
+      "operation": "insert",
+      "detail": "insert({ from_user_id: user.id, from_name: journeyData.name, to_user_id: matchUserId, to_name: matchUserName, train_number, travel_date, boarding_station, destination_station, status: 'pending' }). sendRequest()."
+    },
+    {
+      "file": "src/pages/Chats.tsx",
+      "line": 114,
+      "api": "supabase.from('profiles').select().eq().maybeSingle()",
+      "table": "profiles",
+      "operation": "select",
+      "detail": "select('name') .eq('id', user.id) .maybeSingle(). Fetch own display name before createConversation (avoid storing email in participant_names)."
+    },
+    {
+      "file": "src/pages/Requests.tsx",
+      "line": 74,
+      "api": "supabase.from('profiles').select().eq().maybeSingle()",
+      "table": "profiles",
+      "operation": "select",
+      "detail": "select('name') .eq('id', user.id) .maybeSingle(). Fetch own display name before createConversation on request accept."
+    },
+    {
+      "file": "src/components/ProfileModal.tsx",
+      "line": 63,
+      "api": "supabase.from('profiles').select().eq().single()",
+      "table": "profiles",
+      "operation": "select",
+      "detail": "select('name, college, gender, bio, hobbies, avatar_url') .eq('id', userId) .single(). Fetch another user's full profile when modal opens. Email deliberately NOT fetched."
+    },
+    {
+      "file": "src/components/ReportDialog.tsx",
+      "line": 32,
+      "api": "supabase.from('user_reports').insert()",
+      "table": "user_reports",
+      "operation": "insert",
+      "detail": "insert({ reporter_id: user.id, reported_id: reportedUserId, reason: reason.trim() || null })."
+    },
+    {
+      "file": "src/components/TrainAutocomplete.tsx",
+      "line": 72,
+      "api": "supabase.from('trains').select().eq().or().limit()",
+      "table": "trains",
+      "operation": "select",
+      "detail": "select('train_number, train_name') .eq('active', true) .or(`train_number.ilike.%${query}%,train_name.ilike.%${query}%`) .limit(15). searchTrains() — debounced 300ms autocomplete on train number OR name."
+    }
+  ],
+  "realtimeChannels": [
+    {
+      "name": "messages-${conversationId}",
+      "file": "src/hooks/useChat.tsx",
+      "detail": "postgres_changes INSERT on messages, filter conversation_id=eq.X. Appends new message to state. Removed via supabase.removeChannel on cleanup."
+    },
+    {
+      "name": "last-read-${conversationId}-${otherUserId}",
+      "file": "src/hooks/useChat.tsx",
+      "detail": "postgres_changes event='*' on last_read, filter conversation_id=eq.X. Updates otherUserLastRead (read receipts) when row.user_id matches otherUserId."
+    },
+    {
+      "name": "conversations-updates-${user.id}",
+      "file": "src/hooks/useChat.tsx",
+      "detail": "postgres_changes event='*' on conversations, NO row filter — triggers full fetchConversations() refetch on any change to any conversation."
+    },
+    {
+      "name": "presence-${conversationId}",
+      "file": "src/hooks/usePresence.ts",
+      "detail": "Realtime presence with config { config: { presence: { key: user.id } } }. Events: presence sync/join/leave + broadcast event='typing'. On SUBSCRIBED status, calls channel.track({ online_at: ISO }). Same channel name re-opened in sendTypingIndicator() to broadcast typing (never removed)."
+    },
+    {
+      "name": "requests-changes",
+      "file": "src/hooks/useAcceptedCompanions.ts",
+      "detail": "Single shared channel with TWO postgres_changes handlers, both event='*' on requests: filter from_user_id=eq.userId and filter to_user_id=eq.userId. Both call fetchAcceptedRequests()."
+    }
+  ],
+  "authApiUsage": [
+    "supabase.auth.onAuthStateChange(callback) — subscribe; returns subscription.unsubscribe()",
+    "supabase.auth.getSession() — restore session on mount",
+    "supabase.auth.signOut()",
+    "supabase.auth.signInWithPassword({ email, password })",
+    "supabase.auth.signUp({ email, password, options: { emailRedirectTo: origin + '/' } })"
+  ],
+  "storageOps": [
+    "Bucket 'avatars': supabase.storage.from('avatars').remove([`${user.id}/avatar.${ext}`]) — delete old avatar before upload",
+    "Bucket 'avatars': supabase.storage.from('avatars').upload(fileName, file, { upsert: true })",
+    "Bucket 'avatars': supabase.storage.from('avatars').createSignedUrl(fileName, 31536000) — 1-year signed URL stored into profiles.avatar_url (bucket is private; NOT getPublicUrl)",
+    "Bucket 'chat-attachments': supabase.storage.from('chat-attachments').upload(path, file, { contentType, upsert: false }), path = `${conversationId}/${uuid}.${ext}`",
+    "Bucket 'chat-attachments': supabase.storage.from('chat-attachments').createSignedUrl(path, 31536000) — 1-year signed URL stored into messages.attachment_url",
+    "No getPublicUrl and no manual `{supabaseUrl}/storage/v1/object/public/...` URL construction anywhere. Avatar URLs are cache-busted client-side via getAvatarUrl() appending `?t=${avatarVersion}` to the stored signed URL (src/hooks/useProfile.ts:49-53)."
+  ],
+  "notes": "Client (src/integrations/supabase/client.ts): createClient<Database>(VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY, { auth: { storage: localStorage, persistSession: true, autoRefreshToken: true } }). Generated types exist at src/integrations/supabase/types.ts (560 lines) — Database includes tables blocked_users, conversations, journeys, last_read, messages, profiles, requests, trains, unverified_trains, user_reports; view profiles_safe; RPC functions can_create_conversation, can_view_journey, can_view_profile, is_blocked, is_blocked_in_conversation, is_conversation_participant, soft_delete_conversation, users_share_journey. Only soft_delete_conversation is actually invoked in frontend code (useChat.tsx:330, with `as any` cast). IMPORTANT: several RLS-relevant RPC functions (can_view_profile, can_view_journey, is_blocked, is_blocked_in_conversation, is_conversation_participant, users_share_journey, can_create_conversation) are referenced in the generated types but never called from the TSX — the frontend relies entirely on RLS policies + these server functions being wired in the DB. Queried column detail: profiles selects use exact columns 'id, name, bio, hobbies, college, gender, avatar_url' (useProfile, ProfileModal) or just 'name' (useChat/useChats/Requests); no call selects email. Pagination/filters inventory: .single() at useProfile.ts:34, useProfile.ts:130, useChat.tsx:316, Dashboard.tsx:275, ProfileModal.tsx:67; .maybeSingle() at useChat.tsx:98, useChat.tsx:166, useChat.tsx:218, Chats.tsx:118, Requests.tsx:78; .or() at useRequests.ts:40 (from_user_id/to_user_id) and TrainAutocomplete.tsx:76 (ilike on train_number/train_name); .in() at useRequests.ts:178; .contains() at useChat.tsx:132; .gt() at useChat.tsx:182; .lt() at useRequests.ts:169; .limit(15) at TrainAutocomplete.tsx:77; head-count selects at useChat.tsx:173,180 and Dashboard.tsx:116; upsert with onConflict 'user_id,conversation_id' at useChat.tsx:286-289. Hook dependency graph: useAuth (consumed by every page/component and by useProfile, useRequests, usePresence, useAcceptedCompanions, useBlockedUsers, useChat); useProfile (EditProfileModal, ProfileMenu, ViewProfileModal); useChat (Dashboard, Chats, Chat, Requests, Matched); useRequests (Matched, Requests); useAcceptedCompanions (Chats); useBlockedUsers (Chats, Chat, Matched); usePresence (Chat). Avatar rendering path: profiles.avatar_url holds a signed URL; getAvatarUrl() strips query string and appends `?t=avatarVersion` cache buster; EditProfileModal appends `?t=${Date.now()}` directly after upload. Attachment rendering: messages.attachment_url holds a 1-year signed URL used directly in img/a href (Chat.tsx)."
+}

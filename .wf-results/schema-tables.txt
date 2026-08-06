@@ -1,0 +1,211 @@
+==== TABLE public.profiles | RLS=True | PK=id | RI=DEFAULT
+  COL id | uuid | null=False | default=
+  COL email | text | null=True | default=
+  COL name | text | null=True | default=
+  COL college | text | null=True | default=
+  COL gender | text | null=True | default=
+  COL created_at | timestamptz | null=False | default=now()
+  COL updated_at | timestamptz | null=False | default=now()
+  COL bio | text | null=True | default=
+  COL hobbies | text | null=True | default=
+  COL avatar_url | text | null=True | default=
+  POLICY 'Users can insert own profile' | INSERT | roles=['authenticated']
+    CHECK: auth.uid() = id
+  POLICY 'Users can update own profile' | UPDATE | roles=['authenticated']
+    USING: auth.uid() = id
+  POLICY 'Users can view contextual profiles' | SELECT | roles=['public']
+    USING: can_view_profile(id)
+  POLICY 'Users can delete own profile' | DELETE | roles=['public']
+    USING: auth.uid() = id
+  CONSTRAINT PRIMARY KEY (id)
+  CONSTRAINT FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE
+  CONSTRAINT CONSTRAINT check_profile_name_length CHECK (name IS NULL OR char_length(name) <= 100)
+  CONSTRAINT CONSTRAINT check_profile_bio_length CHECK (bio IS NULL OR char_length(bio) <= 500)
+  CONSTRAINT CONSTRAINT check_profile_hobbies_length CHECK (hobbies IS NULL OR char_length(hobbies) <= 200)
+  CONSTRAINT CONSTRAINT check_profile_college_length CHECK (college IS NULL OR char_length(college) <= 200)
+
+==== TABLE public.journeys | RLS=True | PK=id | RI=DEFAULT
+  COL id | uuid | null=False | default=gen_random_uuid()
+  COL user_id | uuid | null=False | default=
+  COL user_email | text | null=True | default=
+  COL user_name | text | null=True | default=
+  COL train_number | text | null=False | default=
+  COL travel_date | date | null=False | default=
+  COL coach | text | null=True | default=
+  COL boarding_station | text | null=True | default=
+  COL destination_station | text | null=True | default=
+  COL college | text | null=True | default=
+  COL gender | text | null=True | default=
+  COL created_at | timestamptz | null=False | default=now()
+  COL train_name | text | null=True | default=
+  POLICY 'Users can view own journeys or matching journeys' | SELECT | roles=['public']
+    USING: auth.uid() = user_id 
+  OR (
+    public.can_view_journey(train_number, travel_date)
+    AND NOT public.is_blocked(auth.uid(), user_id)
+  )
+  POLICY 'Users can create own journeys' | INSERT | roles=['authenticated']
+    CHECK: auth.uid() = user_id
+  POLICY 'Users can update own journeys' | UPDATE | roles=['authenticated']
+    USING: auth.uid() = user_id
+  POLICY 'Users can delete own journeys' | DELETE | roles=['authenticated']
+    USING: auth.uid() = user_id
+  INDEX idx_journeys_user_id ON public.journeys(user_id)
+  INDEX idx_journeys_train_date ON public.journeys(train_number, travel_date)
+  INDEX idx_journeys_train_date ON public.journeys(train_number, travel_date) (re-created with CREATE INDEX IF NOT EXISTS)
+  CONSTRAINT PRIMARY KEY (id)
+  CONSTRAINT FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+  CONSTRAINT CONSTRAINT check_user_name_length CHECK (user_name IS NULL OR char_length(user_name) <= 100)
+  CONSTRAINT CONSTRAINT check_train_number_length CHECK (char_length(train_number) <= 20)
+  CONSTRAINT CONSTRAINT check_coach_length CHECK (coach IS NULL OR char_length(coach) <= 50)
+  CONSTRAINT CONSTRAINT check_boarding_station_length CHECK (boarding_station IS NULL OR char_length(boarding_station) <= 200)
+  CONSTRAINT CONSTRAINT check_destination_station_length CHECK (destination_station IS NULL OR char_length(destination_station) <= 200)
+  CONSTRAINT CONSTRAINT check_college_length CHECK (college IS NULL OR char_length(college) <= 200)
+
+==== TABLE public.requests | RLS=True | PK=id | RI=DEFAULT
+  COL id | uuid | null=False | default=gen_random_uuid()
+  COL from_user_id | uuid | null=False | default=
+  COL from_email | text | null=True | default=
+  COL from_name | text | null=True | default=
+  COL to_user_id | uuid | null=False | default=
+  COL to_email | text | null=True | default=
+  COL to_name | text | null=True | default=
+  COL train_number | text | null=True | default=
+  COL travel_date | date | null=True | default=
+  COL boarding_station | text | null=True | default=
+  COL destination_station | text | null=True | default=
+  COL status | text | null=False | default='pending'
+  COL created_at | timestamptz | null=False | default=now()
+  COL updated_at | timestamptz | null=False | default=now()
+  POLICY 'Users can view requests they sent or received' | SELECT | roles=['authenticated']
+    USING: (auth.uid() = from_user_id OR auth.uid() = to_user_id)
+  AND NOT public.is_blocked(from_user_id, to_user_id)
+  POLICY 'Users can create requests' | INSERT | roles=['authenticated']
+    CHECK: auth.uid() = from_user_id
+    AND from_user_id <> to_user_id
+    AND NOT public.is_blocked(from_user_id, to_user_id)
+    AND public.users_share_journey(from_user_id, to_user_id, train_number, travel_date)
+  POLICY 'Users can update requests they received' | UPDATE | roles=['authenticated']
+    USING: auth.uid() = to_user_id
+  POLICY 'Users can delete their pending outgoing requests' | DELETE | roles=['public']
+    USING: auth.uid() = from_user_id AND status = 'pending'
+  INDEX idx_requests_from_user ON public.requests(from_user_id)
+  INDEX idx_requests_to_user ON public.requests(to_user_id)
+  INDEX idx_requests_status ON public.requests(status)
+  INDEX idx_requests_status_users ON public.requests(status, from_user_id, to_user_id)
+  CONSTRAINT PRIMARY KEY (id)
+  CONSTRAINT FOREIGN KEY (from_user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+  CONSTRAINT FOREIGN KEY (to_user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+  CONSTRAINT CONSTRAINT requests_status_check CHECK (status IN ('pending', 'accepted', 'rejected'))
+
+==== TABLE public.conversations | RLS=True | PK=id | RI=DEFAULT
+  COL id | uuid | null=False | default=gen_random_uuid()
+  COL participants | uuid[] | null=False | default=
+  COL participant_names | jsonb | null=False | default='{}'::jsonb
+  COL train_number | text | null=True | default=
+  COL travel_date | date | null=True | default=
+  COL last_message | text | null=True | default=
+  COL last_message_time | timestamptz | null=True | default=
+  COL created_at | timestamptz | null=False | default=now()
+  COL deleted_for | uuid[] | null=True | default='{}'
+  POLICY 'Users can view conversations they participate in' | SELECT | roles=['public']
+    USING: auth.uid() = ANY(participants) 
+  AND NOT (auth.uid() = ANY(COALESCE(deleted_for, '{}')))
+  POLICY 'Users can create accepted-companion conversations' | INSERT | roles=['authenticated']
+    CHECK: public.can_create_conversation(participants, train_number, travel_date)
+  POLICY 'Users can update conversations they participate in' | UPDATE | roles=['public']
+    USING: auth.uid() = ANY(participants)
+    CHECK: auth.uid() = ANY(participants)
+  INDEX idx_conversations_participants ON public.conversations USING GIN(participants)
+  CONSTRAINT PRIMARY KEY (id)
+  CONSTRAINT BEFORE UPDATE trigger 'prevent_conversation_tamper_trg' (via public.prevent_conversation_tamper()) prevents changes to participants, participant_names, train_number, travel_date, created_at, id, and to deleted_for unless session flag app.allow_deleted_for_update='on'
+  CONSTRAINT Column-level UPDATE privilege restricted to (last_message, last_message_time, deleted_for) for authenticated; service_role has ALL
+
+==== TABLE public.messages | RLS=True | PK=id | RI=DEFAULT
+  COL id | uuid | null=False | default=gen_random_uuid()
+  COL conversation_id | uuid | null=False | default=
+  COL sender_id | uuid | null=False | default=
+  COL sender_name | text | null=True | default=
+  COL text | text | null=False | default=
+  COL created_at | timestamptz | null=False | default=now()
+  COL attachment_url | text | null=True | default=
+  COL attachment_type | text | null=True | default=
+  COL attachment_name | text | null=True | default=
+  COL attachment_size | bigint | null=True | default=
+  POLICY 'Users can view messages in their conversations' | SELECT | roles=['authenticated']
+    USING: public.is_conversation_participant(conversation_id)
+  POLICY 'Users can send messages in their conversations' | INSERT | roles=['authenticated']
+    CHECK: auth.uid() = sender_id
+  AND public.is_conversation_participant(conversation_id)
+  AND NOT public.is_blocked_in_conversation(conversation_id, auth.uid())
+  INDEX idx_messages_conversation ON public.messages(conversation_id)
+  CONSTRAINT PRIMARY KEY (id)
+  CONSTRAINT FOREIGN KEY (conversation_id) REFERENCES public.conversations(id) ON DELETE CASCADE
+  CONSTRAINT FOREIGN KEY (sender_id) REFERENCES auth.users(id) ON DELETE CASCADE
+
+==== TABLE public.last_read | RLS=True | PK=id | RI=FULL
+  COL id | uuid | null=False | default=gen_random_uuid()
+  COL user_id | uuid | null=False | default=
+  COL conversation_id | uuid | null=False | default=
+  COL timestamp | timestamptz | null=False | default=now()
+  POLICY 'Users can view own last_read' | SELECT | roles=['authenticated']
+    USING: auth.uid() = user_id
+  POLICY 'Users can insert own last_read' | INSERT | roles=['authenticated']
+    CHECK: auth.uid() = user_id
+  POLICY 'Users can update own last_read' | UPDATE | roles=['authenticated']
+    USING: auth.uid() = user_id
+  CONSTRAINT PRIMARY KEY (id)
+  CONSTRAINT FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+  CONSTRAINT FOREIGN KEY (conversation_id) REFERENCES public.conversations(id) ON DELETE CASCADE
+  CONSTRAINT UNIQUE (user_id, conversation_id)
+
+==== TABLE public.blocked_users | RLS=True | PK=id | RI=DEFAULT
+  COL id | uuid | null=False | default=gen_random_uuid()
+  COL blocker_id | uuid | null=False | default=
+  COL blocked_id | uuid | null=False | default=
+  COL created_at | timestamptz | null=False | default=now()
+  POLICY 'Users can view their own blocks' | SELECT | roles=['public']
+    USING: auth.uid() = blocker_id
+  POLICY 'Users can block others' | INSERT | roles=['public']
+    CHECK: auth.uid() = blocker_id
+  POLICY 'Users can unblock others' | DELETE | roles=['public']
+    USING: auth.uid() = blocker_id
+  INDEX idx_blocked_users_lookup ON blocked_users(blocker_id, blocked_id)
+  CONSTRAINT PRIMARY KEY (id)
+  CONSTRAINT UNIQUE (blocker_id, blocked_id)
+
+==== TABLE public.user_reports | RLS=True | PK=id | RI=DEFAULT
+  COL id | uuid | null=False | default=gen_random_uuid()
+  COL reporter_id | uuid | null=False | default=
+  COL reported_id | uuid | null=False | default=
+  COL reason | text | null=True | default=
+  COL created_at | timestamptz | null=False | default=now()
+  POLICY 'Users can create reports' | INSERT | roles=['public']
+    CHECK: auth.uid() = reporter_id
+  POLICY 'Users can view their own reports' | SELECT | roles=['public']
+    USING: auth.uid() = reporter_id
+  CONSTRAINT PRIMARY KEY (id)
+
+==== TABLE public.trains | RLS=True | PK=train_number | RI=DEFAULT
+  COL train_number | text | null=False | default=
+  COL train_name | text | null=False | default=
+  COL active | boolean | null=False | default=true
+  COL created_at | timestamptz | null=False | default=now()
+  POLICY 'Anyone can view trains' | SELECT | roles=['public']
+    USING: true
+  CONSTRAINT PRIMARY KEY (train_number)
+
+==== TABLE public.unverified_trains | RLS=True | PK=id | RI=DEFAULT
+  COL id | uuid | null=False | default=gen_random_uuid()
+  COL train_number | text | null=False | default=
+  COL train_name | text | null=True | default=
+  COL submitted_by | uuid | null=True | default=
+  COL created_at | timestamptz | null=False | default=now()
+  COL entered_value | text | null=True | default=
+  COL normalized_value | text | null=True | default=
+  POLICY 'Users can submit unverified trains' | INSERT | roles=['public']
+    CHECK: auth.uid() = submitted_by
+  POLICY 'Users can view own unverified submissions' | SELECT | roles=['public']
+    USING: auth.uid() = submitted_by
+  CONSTRAINT PRIMARY KEY (id)
+  CONSTRAINT FOREIGN KEY (submitted_by) REFERENCES auth.users(id)

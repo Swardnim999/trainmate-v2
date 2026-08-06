@@ -1,0 +1,1110 @@
+{
+  "functions": [
+    {
+      "definition": "CREATE OR REPLACE FUNCTION public.update_updated_at_column()\nRETURNS TRIGGER \nLANGUAGE plpgsql\nSET search_path = public\nAS $$\nBEGIN\n  NEW.updated_at = now();\n  RETURN NEW;\nEND;\n$$;",
+      "name": "public.update_updated_at_column",
+      "returns": "trigger",
+      "security": "SECURITY INVOKER (default); LANGUAGE plpgsql; SET search_path = public",
+      "signature": "update_updated_at_column() RETURNS trigger"
+    },
+    {
+      "definition": "CREATE OR REPLACE FUNCTION public.handle_new_user()\nRETURNS TRIGGER\nLANGUAGE plpgsql\nSECURITY DEFINER SET search_path = public\nAS $$\nBEGIN\n  INSERT INTO public.profiles (id, email)\n  VALUES (NEW.id, NEW.email);\n  RETURN NEW;\nEND;\n$$;",
+      "name": "public.handle_new_user",
+      "returns": "trigger",
+      "security": "SECURITY DEFINER; LANGUAGE plpgsql; SET search_path = public",
+      "signature": "handle_new_user() RETURNS trigger"
+    },
+    {
+      "definition": "CREATE OR REPLACE FUNCTION public.is_conversation_participant(conv_id UUID)\nRETURNS BOOLEAN\nLANGUAGE sql\nSTABLE\nSECURITY DEFINER\nSET search_path = public\nAS $$\n  SELECT EXISTS (\n    SELECT 1 FROM public.conversations\n    WHERE id = conv_id AND auth.uid() = ANY(participants)\n  )\n$$;",
+      "name": "public.is_conversation_participant",
+      "returns": "boolean",
+      "security": "SECURITY DEFINER; LANGUAGE sql; STABLE; SET search_path = public",
+      "signature": "is_conversation_participant(conv_id uuid) RETURNS boolean"
+    },
+    {
+      "definition": "CREATE OR REPLACE FUNCTION public.can_view_journey(journey_train_number text, journey_travel_date date)\nRETURNS boolean\nLANGUAGE sql\nSTABLE\nSECURITY DEFINER\nSET search_path = public\nAS $$\n  SELECT EXISTS (\n    SELECT 1 FROM public.journeys\n    WHERE user_id = auth.uid()\n    AND train_number = journey_train_number\n    AND travel_date = journey_travel_date\n  )\n$$;",
+      "name": "public.can_view_journey",
+      "returns": "boolean",
+      "security": "SECURITY DEFINER; LANGUAGE sql; STABLE; SET search_path = public",
+      "signature": "can_view_journey(journey_train_number text, journey_travel_date date) RETURNS boolean"
+    },
+    {
+      "definition": "CREATE OR REPLACE FUNCTION public.is_blocked(user_a uuid, user_b uuid)\nRETURNS boolean\nLANGUAGE sql\nSTABLE\nSECURITY DEFINER\nSET search_path = public\nAS $$\n  SELECT EXISTS (\n    SELECT 1 FROM public.blocked_users\n    WHERE (blocker_id = user_a AND blocked_id = user_b)\n       OR (blocker_id = user_b AND blocked_id = user_a)\n  )\n$$;",
+      "name": "public.is_blocked",
+      "returns": "boolean",
+      "security": "SECURITY DEFINER; LANGUAGE sql; STABLE; SET search_path = public",
+      "signature": "is_blocked(user_a uuid, user_b uuid) RETURNS boolean"
+    },
+    {
+      "definition": "CREATE OR REPLACE FUNCTION public.can_view_profile(profile_id uuid)\nRETURNS boolean\nLANGUAGE sql\nSTABLE\nSECURITY DEFINER\nSET search_path = public\nAS $$\n  SELECT (\n    -- Own profile\n    auth.uid() = profile_id\n    OR (\n      -- Not blocked AND has contextual relationship\n      NOT public.is_blocked(auth.uid(), profile_id)\n      AND (\n        EXISTS (\n          -- Users with matching journeys (same train + date)\n          SELECT 1 FROM journeys j1\n          INNER JOIN journeys j2 ON j1.train_number = j2.train_number \n            AND j1.travel_date = j2.travel_date\n          WHERE j1.user_id = auth.uid() \n            AND j2.user_id = profile_id\n        )\n        OR EXISTS (\n          -- Users with accepted companion requests\n          SELECT 1 FROM requests\n          WHERE status = 'accepted'\n            AND ((from_user_id = auth.uid() AND to_user_id = profile_id)\n                 OR (to_user_id = auth.uid() AND from_user_id = profile_id))\n        )\n        OR EXISTS (\n          -- Users in active conversations\n          SELECT 1 FROM conversations\n          WHERE auth.uid() = ANY(participants)\n            AND profile_id = ANY(participants)\n        )\n      )\n    )\n  )\n$$;",
+      "name": "public.can_view_profile",
+      "returns": "boolean",
+      "security": "SECURITY DEFINER; LANGUAGE sql; STABLE; SET search_path = public",
+      "signature": "can_view_profile(profile_id uuid) RETURNS boolean"
+    },
+    {
+      "definition": "CREATE OR REPLACE FUNCTION public.soft_delete_conversation(conv_id uuid, user_id_to_add uuid)\nRETURNS void\nLANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$\nBEGIN\n  IF auth.uid() IS NULL OR user_id_to_add IS DISTINCT FROM auth.uid() THEN\n    RAISE EXCEPTION 'Can only soft-delete conversations for yourself';\n  END IF;\n  PERFORM set_config('app.allow_deleted_for_update', 'on', true);\n  UPDATE public.conversations\n  SET deleted_for = array_append(COALESCE(deleted_for, ARRAY[]::uuid[]), user_id_to_add)\n  WHERE id = conv_id\n    AND user_id_to_add = ANY(participants)\n    AND NOT (user_id_to_add = ANY(COALESCE(deleted_for, ARRAY[]::uuid[])));\nEND;\n$$;",
+      "name": "public.soft_delete_conversation",
+      "returns": "void",
+      "security": "SECURITY DEFINER; LANGUAGE plpgsql; SET search_path = public",
+      "signature": "soft_delete_conversation(conv_id uuid, user_id_to_add uuid) RETURNS void"
+    },
+    {
+      "definition": "CREATE OR REPLACE FUNCTION public.prevent_conversation_tamper()\nRETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$\nBEGIN\n  IF NEW.participants IS DISTINCT FROM OLD.participants\n     OR NEW.participant_names IS DISTINCT FROM OLD.participant_names\n     OR NEW.train_number IS DISTINCT FROM OLD.train_number\n     OR NEW.travel_date IS DISTINCT FROM OLD.travel_date\n     OR NEW.created_at IS DISTINCT FROM OLD.created_at\n     OR NEW.id IS DISTINCT FROM OLD.id THEN\n    RAISE EXCEPTION 'Modifying protected conversation fields is not allowed';\n  END IF;\n  IF NEW.deleted_for IS DISTINCT FROM OLD.deleted_for\n     AND coalesce(current_setting('app.allow_deleted_for_update', true), '') <> 'on' THEN\n    RAISE EXCEPTION 'deleted_for can only be modified via soft_delete_conversation()';\n  END IF;\n  RETURN NEW;\nEND;\n$$;",
+      "name": "public.prevent_conversation_tamper",
+      "returns": "trigger",
+      "security": "SECURITY INVOKER (default); LANGUAGE plpgsql; SET search_path = public",
+      "signature": "prevent_conversation_tamper() RETURNS trigger"
+    },
+    {
+      "definition": "CREATE OR REPLACE FUNCTION public.is_blocked_in_conversation(conv_id uuid, uid uuid)\nRETURNS boolean\nLANGUAGE sql\nSTABLE SECURITY DEFINER\nSET search_path = public\nAS $$\n  SELECT EXISTS (\n    SELECT 1\n    FROM public.conversations c, unnest(c.participants) AS p\n    WHERE c.id = conv_id\n      AND p <> uid\n      AND public.is_blocked(uid, p)\n  )\n$$;",
+      "name": "public.is_blocked_in_conversation",
+      "returns": "boolean",
+      "security": "SECURITY DEFINER; LANGUAGE sql; STABLE; SET search_path = public",
+      "signature": "is_blocked_in_conversation(conv_id uuid, uid uuid) RETURNS boolean"
+    },
+    {
+      "definition": "CREATE OR REPLACE FUNCTION public.can_create_conversation(parts uuid[], train text, tdate date)\nRETURNS boolean\nLANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$\n  SELECT\n    parts IS NOT NULL\n    AND array_length(parts, 1) = 2\n    AND auth.uid() = ANY(parts)\n    AND parts[1] <> parts[2]\n    AND NOT public.is_blocked(parts[1], parts[2])\n    AND EXISTS (\n      SELECT 1 FROM public.requests r\n      WHERE r.status = 'accepted'\n        AND (\n          (r.from_user_id = parts[1] AND r.to_user_id = parts[2])\n          OR (r.from_user_id = parts[2] AND r.to_user_id = parts[1])\n        )\n        AND (train IS NULL OR r.train_number = train)\n        AND (tdate IS NULL OR r.travel_date = tdate)\n    );\n$$;",
+      "name": "public.can_create_conversation",
+      "returns": "boolean",
+      "security": "SECURITY DEFINER; LANGUAGE sql; STABLE; SET search_path = public",
+      "signature": "can_create_conversation(parts uuid[], train text, tdate date) RETURNS boolean"
+    },
+    {
+      "definition": "CREATE OR REPLACE FUNCTION public.users_share_journey(a uuid, b uuid, train text, tdate date)\nRETURNS boolean\nLANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$\n  SELECT train IS NOT NULL AND tdate IS NOT NULL AND EXISTS (\n    SELECT 1 FROM public.journeys j1\n    JOIN public.journeys j2\n      ON j1.train_number = j2.train_number\n     AND j1.travel_date  = j2.travel_date\n    WHERE j1.user_id = a AND j2.user_id = b\n      AND j1.train_number = train AND j1.travel_date = tdate\n  );\n$$;",
+      "name": "public.users_share_journey",
+      "returns": "boolean",
+      "security": "SECURITY DEFINER; LANGUAGE sql; STABLE; SET search_path = public",
+      "signature": "users_share_journey(a uuid, b uuid, train text, tdate date) RETURNS boolean"
+    }
+  ],
+  "grants": [
+    "GRANT SELECT ON public.profiles_safe TO authenticated;",
+    "REVOKE EXECUTE ON FUNCTION public.is_conversation_participant(uuid) FROM anon, public;",
+    "REVOKE EXECUTE ON FUNCTION public.is_blocked(uuid, uuid) FROM anon, public;",
+    "REVOKE EXECUTE ON FUNCTION public.can_view_journey(text, date) FROM anon, public;",
+    "REVOKE EXECUTE ON FUNCTION public.can_view_profile(uuid) FROM anon, public;",
+    "REVOKE EXECUTE ON FUNCTION public.soft_delete_conversation(uuid, uuid) FROM anon, public;",
+    "REVOKE EXECUTE ON FUNCTION public.is_blocked_in_conversation(uuid, uuid) FROM anon, public;",
+    "REVOKE EXECUTE ON FUNCTION public.can_create_conversation(uuid[]) FROM anon, public;",
+    "GRANT EXECUTE ON FUNCTION public.is_conversation_participant(uuid) TO authenticated;",
+    "GRANT EXECUTE ON FUNCTION public.is_blocked(uuid, uuid) TO authenticated;",
+    "GRANT EXECUTE ON FUNCTION public.can_view_journey(text, date) TO authenticated;",
+    "GRANT EXECUTE ON FUNCTION public.can_view_profile(uuid) TO authenticated;",
+    "GRANT EXECUTE ON FUNCTION public.soft_delete_conversation(uuid, uuid) TO authenticated;",
+    "GRANT EXECUTE ON FUNCTION public.is_blocked_in_conversation(uuid, uuid) TO authenticated;",
+    "GRANT EXECUTE ON FUNCTION public.can_create_conversation(uuid[]) TO authenticated;",
+    "REVOKE UPDATE ON public.conversations FROM authenticated;",
+    "REVOKE UPDATE ON public.conversations FROM anon;",
+    "GRANT UPDATE (last_message, last_message_time, deleted_for) ON public.conversations TO authenticated;",
+    "GRANT ALL ON public.conversations TO service_role;",
+    "REVOKE ALL ON FUNCTION public.users_share_journey(uuid,uuid,text,date) FROM PUBLIC, anon;",
+    "GRANT EXECUTE ON FUNCTION public.users_share_journey(uuid,uuid,text,date) TO authenticated, service_role;",
+    "REVOKE ALL ON FUNCTION public.can_create_conversation(uuid[],text,date) FROM PUBLIC, anon;",
+    "GRANT EXECUTE ON FUNCTION public.can_create_conversation(uuid[],text,date) TO authenticated, service_role;",
+    "REVOKE SELECT (email) ON public.profiles FROM authenticated;",
+    "REVOKE SELECT (email) ON public.profiles FROM anon;",
+    "REVOKE SELECT ON public.profiles, public.profiles_safe, public.conversations, public.messages, public.journeys, public.requests, public.blocked_users, public.last_read, public.user_reports, public.unverified_trains FROM anon;",
+    "REVOKE INSERT, UPDATE, DELETE ON public.blocked_users, public.unverified_trains, public.user_reports, public.conversations, public.requests, public.profiles FROM anon;",
+    "REVOKE EXECUTE ON FUNCTION graphql_public.graphql(text, text, jsonb, jsonb) FROM anon, authenticated, PUBLIC;",
+    "REVOKE USAGE ON SCHEMA graphql_public FROM anon, authenticated;",
+    "REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM PUBLIC, anon;"
+  ],
+  "notes": "AUTH SCHEMA REFERENCES: profiles.id, journeys.user_id, requests.from_user_id/to_user_id, messages.sender_id, last_read.user_id, unverified_trains.submitted_by reference auth.users(id) (ON DELETE CASCADE except unverified_trains.submitted_by). handle_new_user fires AFTER INSERT on auth.users to auto-create the profile row. auth.uid() (derived from auth.jwt()) is used throughout policies and SECURITY DEFINER functions. auth.users.email is the canonical owner-email source because SELECT (email) on public.profiles is revoked from authenticated and anon; profiles_safe view exposes email only to the owner.\n\nDROPPED/SUPERSEDED (do NOT recreate): policies 'Users can view all profiles', 'Users can view all journeys', 'Users can create conversations they participate in', old avatar SELECT policies ('Avatars are publicly accessible' / 'Authenticated users can view avatars'), old trigger 'conversations_prevent_tamper' (replaced by prevent_conversation_tamper_trg); function can_create_conversation(uuid[]) (dropped, replaced by 3-arg version); journeys.user_email column.\n\nKEY HARDENING: (1) conversations UPDATE column-restricted: REVOKE UPDATE (table) from authenticated/anon, GRANT UPDATE only (last_message, last_message_time, deleted_for) to authenticated, GRANT ALL to service_role; deleted_for additionally guarded by prevent_conversation_tamper trigger requiring session flag app.allow_deleted_for_update='on' set only inside soft_delete_conversation(). (2) SECURITY DEFINER helpers revoked from anon/public, granted to authenticated. users_share_journey and can_create_conversation(uuid[],text,date) granted to authenticated AND service_role. handle_new_user revoked from PUBLIC and anon. (3) anon revoked from SELECT on all public data tables + view, and from INSERT/UPDATE/DELETE on the DML-relevant subset. (4) GraphQL disabled: COMMENT @graphql({\\\"visible\\\": false}) on all tables + profiles_safe view + RLS functions, graphql_public EXECUTE/USAGE revoked from anon/authenticated, then DROP EXTENSION pg_graphql CASCADE. (5) Seed cleanup: DELETE FROM conversations WHERE id='11111111-1111-1111-1111-111111111111'.\n\nAVATARS BUCKET CHRONOLOGY: created public=true (20251227101646) -> public=false (20260106151017) -> public=true (20260106164620) -> public=false FINAL (20260418102918). Final read policy 'Users can view contextual avatars' (owner OR can_view_profile(folder uuid)). chat-attachments bucket is referenced by storage policies but NEVER created in this file (must exist externally; assume private). Object keys are namespaced: avatars = '<user_id>/<file>', chat-attachments = '<conversation_id>/<file>'; policies parse the first path segment.\n\nREALTIME.MESSAGES FINAL POLICY (verbatim, from 20260702121413): CREATE POLICY \\\"Authenticated users can receive their conversation messages\\\" ON realtime.messages FOR SELECT TO authenticated USING ((realtime.topic() LIKE 'messages-%' AND public.is_conversation_participant(NULLIF(replace(realtime.topic(), 'messages-', ''), '')::uuid)) OR (realtime.topic() LIKE 'last-read-%' AND public.is_conversation_participant(substring(realtime.topic() from 11 for 36)::uuid)) OR (realtime.topic() = ('conversations-updates-' || auth.uid()::text)));\n\nBLUEPRINT EDGE CASES: (a) GRANT EXECUTE on can_create_conversation(uuid[]) to authenticated predates its drop - the surviving 3-arg version has its own grants (authenticated, service_role); (b) profiles_safe is the only sanctioned owner-email read path; (c) messages/conversations keep DEFAULT replica identity while last_read is REPLICA IDENTITY FULL (needed for realtime); (d) trains table is seeded with ~200 Indian train rows INSERT ... ON CONFLICT (train_number) DO NOTHING; (e) policies created without a TO clause (roles listed as ['public'] below) apply to all roles including PUBLIC, but table-level SELECT/DML is revoked from anon, so effective access is authenticated-only via table grants; (f) update_updated_at_column was recreated once to add SET search_path = public (mutable-search-path warning fix).",
+  "realtimeConfig": "Realtime publication 'supabase_realtime' includes tables: public.messages, public.conversations, public.last_read. last_read added conditionally via DO block (checked pg_publication_tables for pubname='supabase_realtime', schemaname='public', tablename='last_read') and has REPLICA IDENTITY FULL (messages and conversations keep default identity). RLS is enabled on realtime.messages (broadcast/presence/postgres_changes payload table) with a single SELECT policy for authenticated users scoping topics: per-conversation 'messages-<conversationId>' via is_conversation_participant; 'last-read-%' topics via is_conversation_participant(substring of topic); per-user 'conversations-updates-<auth.uid()>' topics.",
+  "storageBuckets": [
+    {
+      "bucket": "avatars",
+      "public": false,
+      "policies": [
+        "CREATE POLICY \"Users can view contextual avatars\" ON storage.objects FOR SELECT TO authenticated USING (bucket_id = 'avatars' AND ((storage.foldername(name))[1] = auth.uid()::text OR public.can_view_profile(((storage.foldername(name))[1])::uuid)));",
+        "CREATE POLICY \"Users can upload their own avatar\" ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'avatars' AND auth.uid()::text = (storage.foldername(name))[1]);",
+        "CREATE POLICY \"Users can update their own avatar\" ON storage.objects FOR UPDATE TO authenticated USING (bucket_id = 'avatars' AND auth.uid()::text = (storage.foldername(name))[1]);",
+        "CREATE POLICY \"Users can delete their own avatar\" ON storage.objects FOR DELETE TO authenticated USING (bucket_id = 'avatars' AND auth.uid()::text = (storage.foldername(name))[1]);"
+      ]
+    },
+    {
+      "bucket": "chat-attachments",
+      "public": false,
+      "policies": [
+        "CREATE POLICY \"Participants can read chat attachments\" ON storage.objects FOR SELECT TO authenticated USING (bucket_id = 'chat-attachments' AND public.is_conversation_participant((split_part(name, '/', 1))::uuid));",
+        "CREATE POLICY \"Participants can upload chat attachments\" ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'chat-attachments' AND public.is_conversation_participant((split_part(name, '/', 1))::uuid) AND owner = auth.uid());",
+        "CREATE POLICY \"Owners can delete their chat attachments\" ON storage.objects FOR DELETE TO authenticated USING (bucket_id = 'chat-attachments' AND owner = auth.uid());",
+        "CREATE POLICY \"Owners can update their chat attachments\" ON storage.objects FOR UPDATE TO authenticated USING (bucket_id = 'chat-attachments' AND owner = auth.uid() AND public.is_conversation_participant((split_part(name, '/', 1))::uuid)) WITH CHECK (bucket_id = 'chat-attachments' AND owner = auth.uid() AND public.is_conversation_participant((split_part(name, '/', 1))::uuid));"
+      ]
+    }
+  ],
+  "summary": "TrainMate consolidated Supabase schema (generated 2026-07-23 from supabase/migrations/*). Public schema has 10 tables: profiles, journeys, requests, conversations, messages, last_read, blocked_users, user_reports, trains, unverified_trains. All tables have RLS enabled. Access control is built around SECURITY DEFINER helper functions invoked from RLS policies: is_conversation_participant, can_view_journey, can_view_profile, is_blocked, is_blocked_in_conversation, can_create_conversation(uuid[],text,date), users_share_journey, plus soft_delete_conversation (SECURITY DEFINER RPC) and prevent_conversation_tamper (trigger guard). profiles_safe is a security_invoker view that nulls email for non-owners. Realtime is enabled on messages, conversations, and last_read (last_read with REPLICA IDENTITY FULL); realtime.messages has RLS policy scoping topics to participants. Storage: avatars bucket (private, final state) with contextual read + owner-managed write policies, and chat-attachments bucket policies (bucket created externally). Column-level privileges revoke UPDATE on conversations from authenticated/anon (only last_message, last_message_time, deleted_for grantable), revoke email SELECT on profiles, and anon is revoked from all key tables/functions. GraphQL surface hidden via comments and pg_graphql extension dropped.",
+  "tables": [
+    {
+      "columns": [
+        {
+          "comment": "PK; REFERENCES auth.users(id) ON DELETE CASCADE",
+          "default": "",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "comment": "SELECT (email) revoked from authenticated and anon; email readable only via profiles_safe view for the owner",
+          "default": "",
+          "name": "email",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "name",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "college",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "gender",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "type": "timestamptz"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": false,
+          "type": "timestamptz"
+        },
+        {
+          "comment": "added 20251227101646",
+          "default": "",
+          "name": "bio",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "comment": "added 20251227101646",
+          "default": "",
+          "name": "hobbies",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "comment": "added 20251227101646",
+          "default": "",
+          "name": "avatar_url",
+          "nullable": true,
+          "type": "text"
+        }
+      ],
+      "constraints": [
+        "PRIMARY KEY (id)",
+        "FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE",
+        "CONSTRAINT check_profile_name_length CHECK (name IS NULL OR char_length(name) <= 100)",
+        "CONSTRAINT check_profile_bio_length CHECK (bio IS NULL OR char_length(bio) <= 500)",
+        "CONSTRAINT check_profile_hobbies_length CHECK (hobbies IS NULL OR char_length(hobbies) <= 200)",
+        "CONSTRAINT check_profile_college_length CHECK (college IS NULL OR char_length(college) <= 200)"
+      ],
+      "indexes": [],
+      "name": "public.profiles",
+      "policies": [
+        {
+          "check": "auth.uid() = id",
+          "command": "INSERT",
+          "name": "Users can insert own profile",
+          "roles": [
+            "authenticated"
+          ],
+          "using": ""
+        },
+        {
+          "check": "",
+          "command": "UPDATE",
+          "name": "Users can update own profile",
+          "roles": [
+            "authenticated"
+          ],
+          "using": "auth.uid() = id"
+        },
+        {
+          "check": "",
+          "command": "SELECT",
+          "name": "Users can view contextual profiles",
+          "roles": [
+            "public"
+          ],
+          "using": "can_view_profile(id)"
+        },
+        {
+          "check": "",
+          "command": "DELETE",
+          "name": "Users can delete own profile",
+          "roles": [
+            "public"
+          ],
+          "using": "auth.uid() = id"
+        }
+      ],
+      "primaryKey": "id",
+      "replicaIdentity": "DEFAULT",
+      "rls": true
+    },
+    {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "comment": "REFERENCES auth.users(id) ON DELETE CASCADE",
+          "default": "",
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "comment": "DROPPED (20260418104404) - email leak via can_view_journey policy",
+          "default": "",
+          "name": "user_email",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "user_name",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "train_number",
+          "nullable": false,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "travel_date",
+          "nullable": false,
+          "type": "date"
+        },
+        {
+          "default": "",
+          "name": "coach",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "boarding_station",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "destination_station",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "college",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "gender",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "type": "timestamptz"
+        },
+        {
+          "comment": "added 20251219073900 for display",
+          "default": "",
+          "name": "train_name",
+          "nullable": true,
+          "type": "text"
+        }
+      ],
+      "constraints": [
+        "PRIMARY KEY (id)",
+        "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE",
+        "CONSTRAINT check_user_name_length CHECK (user_name IS NULL OR char_length(user_name) <= 100)",
+        "CONSTRAINT check_train_number_length CHECK (char_length(train_number) <= 20)",
+        "CONSTRAINT check_coach_length CHECK (coach IS NULL OR char_length(coach) <= 50)",
+        "CONSTRAINT check_boarding_station_length CHECK (boarding_station IS NULL OR char_length(boarding_station) <= 200)",
+        "CONSTRAINT check_destination_station_length CHECK (destination_station IS NULL OR char_length(destination_station) <= 200)",
+        "CONSTRAINT check_college_length CHECK (college IS NULL OR char_length(college) <= 200)"
+      ],
+      "indexes": [
+        "idx_journeys_user_id ON public.journeys(user_id)",
+        "idx_journeys_train_date ON public.journeys(train_number, travel_date)",
+        "idx_journeys_train_date ON public.journeys(train_number, travel_date) (re-created with CREATE INDEX IF NOT EXISTS)"
+      ],
+      "name": "public.journeys",
+      "policies": [
+        {
+          "check": "",
+          "command": "SELECT",
+          "name": "Users can view own journeys or matching journeys",
+          "roles": [
+            "public"
+          ],
+          "using": "auth.uid() = user_id \n  OR (\n    public.can_view_journey(train_number, travel_date)\n    AND NOT public.is_blocked(auth.uid(), user_id)\n  )"
+        },
+        {
+          "check": "auth.uid() = user_id",
+          "command": "INSERT",
+          "name": "Users can create own journeys",
+          "roles": [
+            "authenticated"
+          ],
+          "using": ""
+        },
+        {
+          "check": "",
+          "command": "UPDATE",
+          "name": "Users can update own journeys",
+          "roles": [
+            "authenticated"
+          ],
+          "using": "auth.uid() = user_id"
+        },
+        {
+          "check": "",
+          "command": "DELETE",
+          "name": "Users can delete own journeys",
+          "roles": [
+            "authenticated"
+          ],
+          "using": "auth.uid() = user_id"
+        }
+      ],
+      "primaryKey": "id",
+      "replicaIdentity": "DEFAULT",
+      "rls": true
+    },
+    {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "comment": "REFERENCES auth.users(id) ON DELETE CASCADE",
+          "default": "",
+          "name": "from_user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "",
+          "name": "from_email",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "from_name",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "comment": "REFERENCES auth.users(id) ON DELETE CASCADE",
+          "default": "",
+          "name": "to_user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "",
+          "name": "to_email",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "to_name",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "train_number",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "travel_date",
+          "nullable": true,
+          "type": "date"
+        },
+        {
+          "default": "",
+          "name": "boarding_station",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "destination_station",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "comment": "CHECK (status IN ('pending', 'accepted', 'rejected'))",
+          "default": "'pending'",
+          "name": "status",
+          "nullable": false,
+          "type": "text"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "type": "timestamptz"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": false,
+          "type": "timestamptz"
+        }
+      ],
+      "constraints": [
+        "PRIMARY KEY (id)",
+        "FOREIGN KEY (from_user_id) REFERENCES auth.users(id) ON DELETE CASCADE",
+        "FOREIGN KEY (to_user_id) REFERENCES auth.users(id) ON DELETE CASCADE",
+        "CONSTRAINT requests_status_check CHECK (status IN ('pending', 'accepted', 'rejected'))"
+      ],
+      "indexes": [
+        "idx_requests_from_user ON public.requests(from_user_id)",
+        "idx_requests_to_user ON public.requests(to_user_id)",
+        "idx_requests_status ON public.requests(status)",
+        "idx_requests_status_users ON public.requests(status, from_user_id, to_user_id)"
+      ],
+      "name": "public.requests",
+      "policies": [
+        {
+          "check": "",
+          "command": "SELECT",
+          "name": "Users can view requests they sent or received",
+          "roles": [
+            "authenticated"
+          ],
+          "using": "(auth.uid() = from_user_id OR auth.uid() = to_user_id)\n  AND NOT public.is_blocked(from_user_id, to_user_id)"
+        },
+        {
+          "check": "auth.uid() = from_user_id\n    AND from_user_id <> to_user_id\n    AND NOT public.is_blocked(from_user_id, to_user_id)\n    AND public.users_share_journey(from_user_id, to_user_id, train_number, travel_date)",
+          "command": "INSERT",
+          "name": "Users can create requests",
+          "roles": [
+            "authenticated"
+          ],
+          "using": ""
+        },
+        {
+          "check": "",
+          "command": "UPDATE",
+          "name": "Users can update requests they received",
+          "roles": [
+            "authenticated"
+          ],
+          "using": "auth.uid() = to_user_id"
+        },
+        {
+          "check": "",
+          "command": "DELETE",
+          "name": "Users can delete their pending outgoing requests",
+          "roles": [
+            "public"
+          ],
+          "using": "auth.uid() = from_user_id AND status = 'pending'"
+        }
+      ],
+      "primaryKey": "id",
+      "replicaIdentity": "DEFAULT",
+      "rls": true
+    },
+    {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "",
+          "name": "participants",
+          "nullable": false,
+          "type": "uuid[]"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "participant_names",
+          "nullable": false,
+          "type": "jsonb"
+        },
+        {
+          "default": "",
+          "name": "train_number",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "travel_date",
+          "nullable": true,
+          "type": "date"
+        },
+        {
+          "default": "",
+          "name": "last_message",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "last_message_time",
+          "nullable": true,
+          "type": "timestamptz"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "type": "timestamptz"
+        },
+        {
+          "comment": "added 20251215070131; soft-delete per user; only mutable via soft_delete_conversation()",
+          "default": "'{}'",
+          "name": "deleted_for",
+          "nullable": true,
+          "type": "uuid[]"
+        }
+      ],
+      "constraints": [
+        "PRIMARY KEY (id)",
+        "BEFORE UPDATE trigger 'prevent_conversation_tamper_trg' (via public.prevent_conversation_tamper()) prevents changes to participants, participant_names, train_number, travel_date, created_at, id, and to deleted_for unless session flag app.allow_deleted_for_update='on'",
+        "Column-level UPDATE privilege restricted to (last_message, last_message_time, deleted_for) for authenticated; service_role has ALL"
+      ],
+      "indexes": [
+        "idx_conversations_participants ON public.conversations USING GIN(participants)"
+      ],
+      "name": "public.conversations",
+      "policies": [
+        {
+          "check": "",
+          "command": "SELECT",
+          "name": "Users can view conversations they participate in",
+          "roles": [
+            "public"
+          ],
+          "using": "auth.uid() = ANY(participants) \n  AND NOT (auth.uid() = ANY(COALESCE(deleted_for, '{}')))"
+        },
+        {
+          "check": "public.can_create_conversation(participants, train_number, travel_date)",
+          "command": "INSERT",
+          "name": "Users can create accepted-companion conversations",
+          "roles": [
+            "authenticated"
+          ],
+          "using": ""
+        },
+        {
+          "check": "auth.uid() = ANY(participants)",
+          "command": "UPDATE",
+          "name": "Users can update conversations they participate in",
+          "roles": [
+            "public"
+          ],
+          "using": "auth.uid() = ANY(participants)"
+        }
+      ],
+      "primaryKey": "id",
+      "replicaIdentity": "DEFAULT",
+      "rls": true
+    },
+    {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "comment": "REFERENCES public.conversations(id) ON DELETE CASCADE",
+          "default": "",
+          "name": "conversation_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "comment": "REFERENCES auth.users(id) ON DELETE CASCADE",
+          "default": "",
+          "name": "sender_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "",
+          "name": "sender_name",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "text",
+          "nullable": false,
+          "type": "text"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "type": "timestamptz"
+        },
+        {
+          "comment": "added 20260618111613",
+          "default": "",
+          "name": "attachment_url",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "comment": "added 20260618111613",
+          "default": "",
+          "name": "attachment_type",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "comment": "added 20260618111613",
+          "default": "",
+          "name": "attachment_name",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "comment": "added 20260618111613",
+          "default": "",
+          "name": "attachment_size",
+          "nullable": true,
+          "type": "bigint"
+        }
+      ],
+      "constraints": [
+        "PRIMARY KEY (id)",
+        "FOREIGN KEY (conversation_id) REFERENCES public.conversations(id) ON DELETE CASCADE",
+        "FOREIGN KEY (sender_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+      ],
+      "indexes": [
+        "idx_messages_conversation ON public.messages(conversation_id)"
+      ],
+      "name": "public.messages",
+      "policies": [
+        {
+          "check": "",
+          "command": "SELECT",
+          "name": "Users can view messages in their conversations",
+          "roles": [
+            "authenticated"
+          ],
+          "using": "public.is_conversation_participant(conversation_id)"
+        },
+        {
+          "check": "auth.uid() = sender_id\n  AND public.is_conversation_participant(conversation_id)\n  AND NOT public.is_blocked_in_conversation(conversation_id, auth.uid())",
+          "command": "INSERT",
+          "name": "Users can send messages in their conversations",
+          "roles": [
+            "authenticated"
+          ],
+          "using": ""
+        }
+      ],
+      "primaryKey": "id",
+      "replicaIdentity": "DEFAULT",
+      "rls": true
+    },
+    {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "comment": "REFERENCES auth.users(id) ON DELETE CASCADE",
+          "default": "",
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "comment": "REFERENCES public.conversations(id) ON DELETE CASCADE",
+          "default": "",
+          "name": "conversation_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "now()",
+          "name": "timestamp",
+          "nullable": false,
+          "type": "timestamptz"
+        }
+      ],
+      "constraints": [
+        "PRIMARY KEY (id)",
+        "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE",
+        "FOREIGN KEY (conversation_id) REFERENCES public.conversations(id) ON DELETE CASCADE",
+        "UNIQUE (user_id, conversation_id)"
+      ],
+      "indexes": [],
+      "name": "public.last_read",
+      "policies": [
+        {
+          "check": "",
+          "command": "SELECT",
+          "name": "Users can view own last_read",
+          "roles": [
+            "authenticated"
+          ],
+          "using": "auth.uid() = user_id"
+        },
+        {
+          "check": "auth.uid() = user_id",
+          "command": "INSERT",
+          "name": "Users can insert own last_read",
+          "roles": [
+            "authenticated"
+          ],
+          "using": ""
+        },
+        {
+          "check": "",
+          "command": "UPDATE",
+          "name": "Users can update own last_read",
+          "roles": [
+            "authenticated"
+          ],
+          "using": "auth.uid() = user_id"
+        }
+      ],
+      "primaryKey": "id",
+      "replicaIdentity": "FULL",
+      "rls": true
+    },
+    {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "",
+          "name": "blocker_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "",
+          "name": "blocked_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "type": "timestamptz"
+        }
+      ],
+      "constraints": [
+        "PRIMARY KEY (id)",
+        "UNIQUE (blocker_id, blocked_id)"
+      ],
+      "indexes": [
+        "idx_blocked_users_lookup ON blocked_users(blocker_id, blocked_id)"
+      ],
+      "name": "public.blocked_users",
+      "policies": [
+        {
+          "check": "",
+          "command": "SELECT",
+          "name": "Users can view their own blocks",
+          "roles": [
+            "public"
+          ],
+          "using": "auth.uid() = blocker_id"
+        },
+        {
+          "check": "auth.uid() = blocker_id",
+          "command": "INSERT",
+          "name": "Users can block others",
+          "roles": [
+            "public"
+          ],
+          "using": ""
+        },
+        {
+          "check": "",
+          "command": "DELETE",
+          "name": "Users can unblock others",
+          "roles": [
+            "public"
+          ],
+          "using": "auth.uid() = blocker_id"
+        }
+      ],
+      "primaryKey": "id",
+      "replicaIdentity": "DEFAULT",
+      "rls": true
+    },
+    {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "",
+          "name": "reporter_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "",
+          "name": "reported_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "",
+          "name": "reason",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "type": "timestamptz"
+        }
+      ],
+      "constraints": [
+        "PRIMARY KEY (id)"
+      ],
+      "indexes": [],
+      "name": "public.user_reports",
+      "policies": [
+        {
+          "check": "auth.uid() = reporter_id",
+          "command": "INSERT",
+          "name": "Users can create reports",
+          "roles": [
+            "public"
+          ],
+          "using": ""
+        },
+        {
+          "check": "",
+          "command": "SELECT",
+          "name": "Users can view their own reports",
+          "roles": [
+            "public"
+          ],
+          "using": "auth.uid() = reporter_id"
+        }
+      ],
+      "primaryKey": "id",
+      "replicaIdentity": "DEFAULT",
+      "rls": true
+    },
+    {
+      "columns": [
+        {
+          "default": "",
+          "name": "train_number",
+          "nullable": false,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "train_name",
+          "nullable": false,
+          "type": "text"
+        },
+        {
+          "default": "true",
+          "name": "active",
+          "nullable": false,
+          "type": "boolean"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "type": "timestamptz"
+        }
+      ],
+      "constraints": [
+        "PRIMARY KEY (train_number)"
+      ],
+      "indexes": [],
+      "name": "public.trains",
+      "policies": [
+        {
+          "check": "",
+          "command": "SELECT",
+          "name": "Anyone can view trains",
+          "roles": [
+            "public"
+          ],
+          "using": "true"
+        }
+      ],
+      "primaryKey": "train_number",
+      "replicaIdentity": "DEFAULT",
+      "rls": true
+    },
+    {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "",
+          "name": "train_number",
+          "nullable": false,
+          "type": "text"
+        },
+        {
+          "default": "",
+          "name": "train_name",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "comment": "REFERENCES auth.users(id)",
+          "default": "",
+          "name": "submitted_by",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "type": "timestamptz"
+        },
+        {
+          "comment": "added 20251223123652",
+          "default": "",
+          "name": "entered_value",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "comment": "added 20251223123652",
+          "default": "",
+          "name": "normalized_value",
+          "nullable": true,
+          "type": "text"
+        }
+      ],
+      "constraints": [
+        "PRIMARY KEY (id)",
+        "FOREIGN KEY (submitted_by) REFERENCES auth.users(id)"
+      ],
+      "indexes": [],
+      "name": "public.unverified_trains",
+      "policies": [
+        {
+          "check": "auth.uid() = submitted_by",
+          "command": "INSERT",
+          "name": "Users can submit unverified trains",
+          "roles": [
+            "public"
+          ],
+          "using": ""
+        },
+        {
+          "check": "",
+          "command": "SELECT",
+          "name": "Users can view own unverified submissions",
+          "roles": [
+            "public"
+          ],
+          "using": "auth.uid() = submitted_by"
+        }
+      ],
+      "primaryKey": "id",
+      "replicaIdentity": "DEFAULT",
+      "rls": true
+    }
+  ],
+  "triggers": [
+    {
+      "event": "UPDATE",
+      "function": "public.update_updated_at_column()",
+      "name": "update_profiles_updated_at",
+      "table": "public.profiles",
+      "timing": "BEFORE"
+    },
+    {
+      "event": "UPDATE",
+      "function": "public.update_updated_at_column()",
+      "name": "update_requests_updated_at",
+      "table": "public.requests",
+      "timing": "BEFORE"
+    },
+    {
+      "event": "INSERT",
+      "function": "public.handle_new_user()",
+      "name": "on_auth_user_created",
+      "table": "auth.users",
+      "timing": "AFTER"
+    },
+    {
+      "event": "UPDATE",
+      "function": "public.prevent_conversation_tamper()",
+      "name": "prevent_conversation_tamper_trg",
+      "table": "public.conversations",
+      "timing": "BEFORE"
+    }
+  ],
+  "views": [
+    {
+      "definition": "CREATE OR REPLACE VIEW public.profiles_safe\nWITH (security_invoker = on)\nAS SELECT \n  id,\n  created_at,\n  updated_at,\n  -- Only show email to the owner of the profile\n  CASE WHEN auth.uid() = id THEN email ELSE NULL END as email,\n  name,\n  college,\n  gender,\n  bio,\n  hobbies,\n  avatar_url\nFROM public.profiles;",
+      "name": "public.profiles_safe"
+    }
+  ]
+}

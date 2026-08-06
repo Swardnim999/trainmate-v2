@@ -1,0 +1,126 @@
+{
+  "summary": "TrainMate uses Supabase Realtime v2 postgres_changes + presence + broadcast, all driven from React hooks (useChat, usePresence, useAcceptedCompanions). There are 5 distinct channel topics: `messages-<conversationId>` (INSERT on messages), `last-read-<conversationId>-<otherUserId>` (all events on last_read), `conversations-updates-<user.id>` (all events on conversations, NO filter — refetches full list), `presence-<conversationId>` (presence + typing broadcast), and `requests-changes` (all events on requests — currently NON-FUNCTIONAL because the `requests` table is not in the `supabase_realtime` publication and the `realtime.messages` authorization policy has no branch for that topic). Realtime authorization is enforced via an RLS policy on `realtime.messages` (topics `messages-%` and `last-read-%` require the caller be a conversation participant; `conversations-updates-<uid>` is self-only). There is NO polling anywhere and NO optimistic message insert — the sender's own message returns via the realtime channel echo. Read receipts are upserted into `last_read` and propagate over the `last-read-*` channel; unread counts are computed client-side with N+1 exact-count queries. Presence is per-conversation and only active while the Chat page is mounted.",
+  "dataFlows": [
+    {
+      "trigger": "Any INSERT into public.messages for the open conversation (other participant, or the sender's own message echoed back)",
+      "supabaseCalls": [
+        "supabase.channel(`messages-${conversationId}`)",
+        ".on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` })",
+        ".subscribe()",
+        "cleanup: supabase.removeChannel(channel)"
+      ],
+      "uiBehavior": "Handler appends payload.new (cast as Message) to `messages` state, deduped by id (`if (prev.some(m => m.id === next.id)) return prev;`). Chat.tsx auto-scrolls (scrollIntoView on messages change) and, if the last message sender_id !== user.id, calls markAsRead(conversationId). Note: sender's own message is NOT inserted locally — it appears via this same realtime event (no self-filtering of postgres_changes)."
+    },
+    {
+      "trigger": "User submits the composer form (handleSendMessage), or sends an attachment-only message",
+      "supabaseCalls": [
+        "supabase.from('profiles').select('name').eq('id', user.id).maybeSingle()  // display name",
+        "supabase.from('messages').insert({ conversation_id, sender_id: user.id, sender_name: displayName, text: validatedText, attachment_url, attachment_type, attachment_name, attachment_size })",
+        "supabase.from('conversations').update({ last_message: (text|preview).substring(0,255), last_message_time: new Date().toISOString() }).eq('id', conversationId)  // error NOT surfaced on failure"
+      ],
+      "uiBehavior": "sets loading=true (disables send), text is trimmed + zod-validated via messageSchema (min 1 / max 2000 chars); attachment-only uses preview '📷 Photo' or '📎 name'. On INSERT error, Chat.tsx toasts the error and restores newMessage/pendingAttachment. The sent message renders when the messages-* channel INSERT event arrives (no optimistic bubble)."
+    },
+    {
+      "trigger": "markAsRead(conversationId) — called on Chat mount (useEffect on [conversationId, user]) and every time the messages array changes with last message sender_id !== user.id",
+      "supabaseCalls": [
+        "supabase.from('last_read').upsert({ user_id: user.id, conversation_id: conversationId, timestamp: new Date().toISOString() }, { onConflict: 'user_id,conversation_id' })",
+        "setUnreadCount(prev => ({ ...prev, [conversationId]: 0 }))  // local zero-out",
+        "Receiver side: initial fetch supabase.from('last_read').select('timestamp').eq('conversation_id', cid).eq('user_id', otherUserId).maybeSingle()",
+        "Receiver side: supabase.channel(`last-read-${conversationId}-${otherUserId}`) + .on('postgres_changes', { event: '*', schema: 'public', table: 'last_read', filter: `conversation_id=eq.${conversationId}` })"
+      ],
+      "uiBehavior": "The other user's client receives the UPDATE/INSERT via the last-read-* channel, checks `row.user_id === otherUserId && row.timestamp`, sets otherUserLastRead. Chat.tsx renders each own message with `isRead = isOwn && otherReadAt >= sentAt` → CheckCheck 'Read' (sky) vs CheckCheck 'Delivered' (blue). Handler ignores the current user's own last_read row (user_id mismatch)."
+    },
+    {
+      "trigger": "ANY INSERT/UPDATE/DELETE on public.conversations (from any conversation in the whole DB — the subscription has NO row filter; RLS on realtime.messages only restricts the topic to `conversations-updates-<uid>` and self-only)",
+      "supabaseCalls": [
+        "supabase.channel(`conversations-updates-${user.id}`)",
+        ".on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, () => fetchConversations())  // no filter",
+        "fetchConversations: supabase.from('conversations').select('*').contains('participants', [user.id]).order('last_message_time', { ascending: false })",
+        "then calculateUnreadCounts(convs)"
+      ],
+      "uiBehavior": "Any conversations row change anywhere refetches the entire conversation list + recomputes unread counts. This is the mechanism by which a new message (which triggers the sendMessage conversations.update) refreshes the Chats list and the unread badge. fetchConversations is the single realtime-refresh entrypoint; the refetch itself is RLS-filtered so no cross-user data leaks, but every conversations mutation app-wide fires this refetch in every open Chat/Chats page."
+    },
+    {
+      "trigger": "Chat page mounts (usePresence(conversationId)) and when the other user joins/leaves the same `presence-<conversationId>` channel",
+      "supabaseCalls": [
+        "supabase.channel(`presence-${conversationId}`, { config: { presence: { key: user.id } } })",
+        ".on('presence', { event: 'sync' }, ...)  // channel.presenceState() → rebuild onlineUsers keyed by user.id",
+        ".on('presence', { event: 'join' }, ({ key }) => ...)  // mark online: true",
+        ".on('presence', { event: 'leave' }, ({ key }) => ...)  // mark online: false + lastSeen: now",
+        ".subscribe(async (status) => { if (status === 'SUBSCRIBED') await channel.track({ online_at: new Date().toISOString() }) })",
+        "cleanup: supabase.removeChannel(channel)  // triggers leave to others"
+      ],
+      "uiBehavior": "onlineUsers maps presence keys (user.id) → { online }. Chat.tsx: `isUserOnline(otherUserId)` drives the header pulse dot + 'Online'/'Offline' label. Because the channel is per-conversationId and the hook only mounts on the Chat page, a user is 'online' only while their Chat page is open in that exact conversation; there is no global presence and the Chats list never shows presence. Multi-tab same-user collapses to one key."
+    },
+    {
+      "trigger": "Every keystroke in the composer (handleInputChange → sendTypingIndicator, no debounce/throttle)",
+      "supabaseCalls": [
+        "const channel = supabase.channel(`presence-${conversationId}`);  // fresh channel instance per call",
+        "await channel.send({ type: 'broadcast', event: 'typing', payload: { userId: user.id } })",
+        "Receiver: on the same topic (the subscribed presence channel) .on('broadcast', { event: 'typing' }, ({ payload }) => ...)"
+      ],
+      "uiBehavior": "Receiver adds payload.userId to typingUsers if not present (ignores self via `payload.userId !== user.id`), then setTimeout 3000ms removes it (filter id). Chat.tsx renders <TypingIndicator userName={otherUser?.name} /> when typingUsers.length > 0 (three bouncing dots + '<name> is typing...'). Broadcast is not self-echoed, and the guard double-protects. Typing is fully realtime via Realtime Broadcast — no DB writes."
+    },
+    {
+      "trigger": "Any INSERT/UPDATE/DELETE on public.requests affecting the current user (useAcceptedCompanions mounts — used on the Chats page)",
+      "supabaseCalls": [
+        "supabase.channel('requests-changes')",
+        ".on('postgres_changes', { event: '*', schema: 'public', table: 'requests', filter: `from_user_id=eq.${user.id}` }, () => fetchAcceptedRequests())",
+        ".on('postgres_changes', { event: '*', schema: 'public', table: 'requests', filter: `to_user_id=eq.${user.id}` }, () => fetchAcceptedRequests())",
+        "fetchAcceptedRequests: supabase.from('requests').select('*').eq('from_user_id', user.id).eq('status','accepted')  +  .eq('to_user_id', user.id).eq('status','accepted')"
+      ],
+      "uiBehavior": "Refetches accepted sent+received requests and merges into `companions` (Map keyed by otherUserId, most-recent createdAt wins; direction 'sent'|'received'). CAVEAT: this realtime subscription is DEAD — `requests` is not in the supabase_realtime publication (only messages, conversations, last_read are added in migrations), and the realtime.messages authorization policy has no branch for the `requests-changes` topic. The companion list only refreshes on hook mount/remount, not live."
+    },
+    {
+      "trigger": "User clicks a chat card in Chats.tsx (openChat)",
+      "supabaseCalls": [
+        "Find existing: conversations.find(c => participants includes user.id && otherUserId) — client-side on already-fetched state",
+        "If none (and not blocked): supabase.from('profiles').select('name').eq('id', user.id).maybeSingle()",
+        "supabase.from('conversations').insert({ participants: [user.id, otherUserId], participant_names: {...}, train_number, travel_date, last_message: '', last_message_time: new Date().toISOString() }).select().single()",
+        "navigate(`/chat/${conversationId}`, { state: { conversationId, otherUser, trainNumber, travelDate } })",
+        "Chat.tsx initial fetch: supabase.from('messages').select('*').eq('conversation_id', conversationId).order('created_at', { ascending: true })  // NO limit — full history"
+      ],
+      "uiBehavior": "If no conversation exists, creates one then routes to /chat/<id>. Conversation view shows skeleton while `loading` and messages.length === 0, else renders the full ordered history with date separators (isSameDay) and read/delivered checkmarks. Blocked pairs cannot create conversations."
+    },
+    {
+      "trigger": "Delete Chat (DropdownMenu → AlertDialog confirm, handleDeleteChat)",
+      "supabaseCalls": [
+        "supabase.rpc('soft_delete_conversation', { conv_id: conversationId, user_id_to_add: user.id })",
+        "SQL: SECURITY DEFINER plpgsql — verifies auth.uid() = user_id_to_add and caller is a participant, sets app.allow_deleted_for_update='on', then UPDATE conversations SET deleted_for = array_append(COALESCE(deleted_for,'{}'), user_id_to_add) WHERE id = conv_id AND NOT already deleted_for"
+      ],
+      "uiBehavior": "On success: useChat removes the conversation locally (setConversations filter out); on the Chat page it navigates to /chats with replace. A later message re-INSERT makes the conversation reappear (deleted_for row is hidden from RLS-based `.contains('participants', ...)` query but not from realtime refetch). Direct UPDATE of deleted_for is blocked by the prevent_conversation_tamper trigger (only allowed via the RPC)."
+    }
+  ],
+  "businessRules": [
+    "Messages flow: send = INSERT into public.messages then UPDATE public.conversations (last_message truncated to 255 chars + last_message_time). There is NO optimistic local insert; the sender's own message arrives back through the `messages-<conversationId>` realtime INSERT event (postgres_changes is not self-filtered).",
+    "Inserted message fields: conversation_id, sender_id, sender_name (display name fetched from profiles; fallback 'User'), text (trimmed; zod messageSchema min 1 / max 2000 chars), attachment_url/attachment_type/attachment_name/attachment_size. created_at is NOT set client-side — it is server-defaulted to now() (timestamptz NOT NULL DEFAULT now()).",
+    "Attachments: uploaded to storage bucket `chat-attachments` at path `<conversationId>/<crypto.randomUUID()>.<ext>`, then a 1-year signed URL is stored as attachment_url; allowed files are images (any) or PDF/DOC/DOCX/TXT up to 10 MB.",
+    "Read receipts: markAsRead upserts `last_read` with onConflict 'user_id,conversation_id' (UNIQUE(user_id, conversation_id)); fires on Chat mount and whenever the last message is from the other user. A message shows 'Read' iff `isOwn && otherUserLastRead >= sentAt`, else 'Delivered'.",
+    "Unread counts are computed client-side per conversation (N+1): read user's last_read timestamp; if none, count messages where conversation_id = X AND sender_id != user.id (exact head-count); if present, count messages with created_at > last_read_timestamp AND sender_id != user.id; errors default to 0. Recalculated only inside fetchConversations (initial + conversations-updates realtime). getTotalUnreadCount() sums all conversations.",
+    "The conversations-updates channel subscribes to the whole conversations table with no filter — every conversations row change in the DB triggers a full refetch of the user's list (RLS-filtered for safety but heavy).",
+    "Presence is per-conversation and only live while the Chat page is mounted: `presence-<conversationId>` with presence key = user.id, track({online_at}) on SUBSCRIBED, join→online, leave→offline+lastSeen, sync→full rebuild. 'Other user online' = isUserOnline(otherUserId). Leaving the page removes the channel and broadcasts leave.",
+    "Typing is realtime Broadcast on the same `presence-<conversationId>` topic, sent on every keystroke (unthrottled), auto-cleared after a 3s setTimeout per user; the sender never sees their own indicator (broadcast is not self-echoed and the handler filters payload.userId !== user.id).",
+    "Accepted-companions realtime is dead in this codebase: `requests` is not in the supabase_realtime publication (only messages, conversations, last_read are added via ALTER PUBLICATION) and the realtime.messages authorization policy has no `requests-changes` branch — the two `.on('postgres_changes')` listeners will never fire, so the companions list updates only on mount.",
+    "Realtime authorization is enforced via RLS on realtime.messages ('Authenticated users can receive their conversation messages'): topic LIKE 'messages-%' → is_conversation_participant(replace(topic,'messages-','')::uuid); topic LIKE 'last-read-%' → is_conversation_participant(substring(topic from 11 for 36)::uuid); topic = 'conversations-updates-' || auth.uid() → self only. presence/broadcast channels are NOT gated by this policy.",
+    "last_read has REPLICA IDENTITY FULL so UPDATE/DELETE postgres_changes payloads carry the conversation_id needed to evaluate the `conversation_id=eq.` filter.",
+    "last_read table RLS only exposes the user's OWN row ('Users can view own last_read'), so the initial fetch of the other user's last_read returns null (read receipts begin at null on open); they populate only when the other user upserts while both are subscribed.",
+    "soft_delete_conversation(conv_id uuid, user_id_to_add uuid) is SECURITY DEFINER; refuses non-self (auth.uid() must equal user_id_to_add), requires the caller be a participant, and appends to conversations.deleted_for via app.allow_deleted_for_update bypassing the prevent_conversation_tamper trigger (which blocks any direct deleted_for UPDATE).",
+    "Conversation open/creation: openChat reuses an existing conversation from already-fetched state, else fetches the current user's profile name and inserts a conversation with last_message='' and last_message_time=now(); blocked pairs are refused conversation creation server-side.",
+    "No polling exists anywhere in the messaging stack (no setInterval/refetchInterval). All updates are realtime push plus mount-time fetches.",
+    "Mark-as-read is re-triggered by the messages effect only when the last message sender_id !== user.id, preventing the user's own sends from bumping their own read receipt; unreadCount for the conversation is zeroed locally on markAsRead."
+  ],
+  "edgeCases": [
+    "Sender's own message arrives via realtime — if it races the initial fetch, the dedupe check (prev.some(m => m.id === next.id)) prevents double append; otherwise the message appears only after the server round-trip + WAL event, so there is an observable latency and no optimistic UI.",
+    "If the messages INSERT succeeds but the conversations UPDATE (last_message/last_message_time) fails, the error is silently swallowed (awaited, not checked) — the message renders but the conversation preview/order/unread recompute can go stale until another conversations event fires.",
+    "markAsRead effect runs on every messages array change; guarded by messages.length === 0 return and last.sender_id !== user.id, but it can fire before the initial fetch populates messages (no-op).",
+    "Because conversations-updates refetches on ANY conversations change in the entire DB (no row filter on the table subscription), unrelated conversations being created/deleted elsewhere trigger refetches in every open client; under heavy traffic the refetch storm can drop events or cause churn in the Chats list.",
+    "Read receipts start null on conversation open (last_read RLS hides the other user's row from direct select); they only resolve once the other user upserts last_read while the channel is subscribed — so a 'delivered' state persists for previously-read messages until a fresh markAsRead event arrives.",
+    "requests-changes realtime does not work (table not replicated + no authorization branch), so a newly accepted request will not appear in the Chats companion list until the hook remounts (page navigation).",
+    "Presence only reflects users who currently have the Chat page open for that exact conversation — a user browsing the Chats list or another tab appears offline even if actively using the app.",
+    "Typing broadcasts are sent on every keystroke with a fresh channel instance and no throttle; rapid typing keeps resetting the 3s timer, and the typing indicator can persist longer than 3s. If a user navigates away mid-typing, their typing indicator can linger for up to 3s on the other side.",
+    "Attachment-only messages have empty text; the composer preview is '📷 Photo' (image) or '📎 <name>' (file), stored as last_message; text validation is skipped for attachment messages but a >2000-char text with an attachment throws a custom error.",
+    "Delete chat is a soft delete (deleted_for array) — the conversation row still exists and reappears if a new message arrives, and the RPC refuses deleting for anyone other than the authenticated self.",
+    "Multi-tab same user on the same conversation share one presence key (state[key] becomes an array) — the sync handler collapses to { online: true }, which is correct for the 'other user online' use case."
+  ],
+  "notes": "Exact channel/subscription strings for the realtime migration section: (1) useChat.tsx:63-76 — `messages-${conversationId}`, postgres_changes INSERT on public.messages with filter `conversation_id=eq.${conversationId}`; (2) useChat.tsx:104-116 — `last-read-${conversationId}-${otherUserId}`, postgres_changes event '*' on public.last_read with filter `conversation_id=eq.${conversationId}`; (3) useChat.tsx:145-148 — `conversations-updates-${user.id}`, postgres_changes event '*' on public.conversations with NO filter; (4) usePresence.ts:20 — `presence-${conversationId}` with `{ config: { presence: { key: user.id } } }` handling presence sync/join/leave and broadcast 'typing' (and usePresence.ts:73 a second throwaway `presence-${conversationId}` instance that only broadcasts typing); (5) useAcceptedCompanions.ts:75-97 — `requests-changes` with two postgres_changes listeners (filters `from_user_id=eq.${user.id}` and `to_user_id=eq.${user.id}`). Real-time authorized tables (in supabase_realtime publication): messages, conversations, last_read (requests is missing). Realtime authorization policy file: supabase/migrations/20260702121413_f44b81c6-1de3-40d3-8b75-62b00342fbc4.sql. Key DB files: supabase/migrations/20251212061640_5dc954fa-b976-4b88-b0e4-bdb3250214f5.sql (messages/last_read/conversations schema + RLS), 20260618111613 (messages attachment columns), 20260618111636 (last_read REPLICA IDENTITY FULL + publication), 20260703100726 (soft_delete_conversation RPC + prevent_conversation_tamper trigger). Client file: C:/Users/sward/trainmate-v2/src/hooks/useChat.tsx, usePresence.ts, useAcceptedCompanions.ts; pages C:/Users/sward/trainmate-v2/src/pages/Chats.tsx and Chat.tsx; components TypingIndicator.tsx (presentational only), UnreadBadge.tsx, OnlineStatus.tsx (presentational; not actually used in Chat.tsx header which hand-rolls the dot), lib/chatFormat.ts (time/date formatting only). Supabase client uses default realtime config (no custom params). The migration target should preserve: topic-based per-conversation filtering, participant-only authorization for messages/last_read, self-only conversations-updates topics, REPLICA IDENTITY FULL on last_read, and the requests publication gap."
+}
