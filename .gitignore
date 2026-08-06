@@ -27,3 +27,8 @@ dist-ssr
 .env.local
 .env.*
 !.env.example
+# Claude local files
+.claude/
+
+# Claude workflow artifacts
+.wf-results/
