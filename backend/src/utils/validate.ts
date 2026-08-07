@@ -66,7 +66,7 @@ export function assertPasswordValid(password: string): void {
 }
 
 /** True when any code point is an ASCII control char (0x00-0x1f or DEL 0x7f). */
-function hasControlChar(value: string): boolean {
+export function hasControlChar(value: string): boolean {
   for (const ch of value) {
     const code = ch.codePointAt(0);
     if (code !== undefined && (code < 32 || code === 127)) return true;

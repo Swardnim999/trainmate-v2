@@ -3,6 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { errorHandler } from '../src/middleware/error-handler.js';
+import { AppError } from '../src/utils/errors.js';
 
 const app = createApp();
 
@@ -65,5 +66,21 @@ describe('error envelope', () => {
     expect(JSON.stringify(res.body)).not.toContain('kaboom');
     expect(JSON.stringify(res.body)).not.toContain('node_modules');
     expect(res.body.error.details).toBeUndefined();
+  });
+
+  it('RATE_LIMITED 429 carries Retry-After so callers back off (§1.3)', async () => {
+    // The service login lockout throws AppError(429, RATE_LIMITED) which flows
+    // through the error handler (the route limiters answer inline with their own
+    // Retry-After) — it must still advertise the block window.
+    const throwingApp = express();
+    throwingApp.get('/limited', () => {
+      throw new AppError(429, 'RATE_LIMITED', 'Too many failed login attempts. Try again later.');
+    });
+    throwingApp.use(errorHandler);
+
+    const res = await request(throwingApp).get('/limited');
+    expect(res.status).toBe(429);
+    expect(res.body.error.code).toBe('RATE_LIMITED');
+    expect(res.headers['retry-after']).toBe('900'); // LOGIN_BLOCK_MS / 1000
   });
 });

@@ -18,6 +18,11 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
+  // Trusted reverse-proxy hops in front of this instance. 0 (default) means
+  // clients connect directly and X-Forwarded-For is ignored (spoof-safe). Set to
+  // the real hop count when deployed behind an LB so per-IP rate limiting keys
+  // on the actual client (§16.3 Phase-14 check). Never exceed the true count.
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(0),
   // Auth (Sprint 2B M3). HS256 key — see module doc for the generation command.
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   // Comma-separated origins that email-confirmation redirect_to may point at.

@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
 import { env } from '../config/env.js';
+import { LOGIN_BLOCK_MS } from '../config/constants.js';
 import { AppError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 
@@ -84,6 +85,13 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
   if (err instanceof AppError) {
     if (err.statusCode >= 500) {
       logger.error({ err, requestId }, 'request failed');
+    }
+    // §1.3: a 429 RATE_LIMITED must carry Retry-After so the caller backs off
+    // instead of hammering. The only AppError source of 429 is the service login
+    // lockout (route limiters answer inline with their own Retry-After), whose
+    // block window is LOGIN_BLOCK_MS.
+    if (err.statusCode === 429 && err.code === 'RATE_LIMITED') {
+      res.set('Retry-After', String(LOGIN_BLOCK_MS / 1000));
     }
     sendError(res, err.statusCode, err.code, err.message, err.details);
     return;

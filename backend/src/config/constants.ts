@@ -39,3 +39,16 @@ export const JWT_CLOCK_SKEW_SECONDS = 30;
 export const LOGIN_MAX_FAILURES = 10;
 export const LOGIN_FAILURE_WINDOW_MS = 15 * 60 * 1000;
 export const LOGIN_BLOCK_MS = 15 * 60 * 1000;
+
+/* Route-level per-IP / per-email request limits (§16.1): requests per sliding
+ * window per key. The login limiter is deliberately separate from — and cheaper
+ * than — the service's bcrypt-stage lockout: it sheds abusive traffic before
+ * bcrypt runs at all. */
+export const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+export const RATE_LIMIT_REGISTER_LIMIT = 5;
+export const RATE_LIMIT_LOGIN_LIMIT = 5;
+export const RATE_LIMIT_REFRESH_LIMIT = 15;
+export const RATE_LIMIT_VERIFY_LIMIT = 10;
+export const RATE_LIMIT_RESEND_LIMIT = 5;
+export const RATE_LIMIT_RESET_REQUEST_LIMIT = 5;
+export const RATE_LIMIT_RESET_LIMIT = 5;
