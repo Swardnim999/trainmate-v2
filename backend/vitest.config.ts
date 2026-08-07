@@ -9,6 +9,9 @@ export default defineConfig({
       // Isolate test runs from any developer `.env`: pinned, predictable, quiet.
       NODE_ENV: 'test',
       LOG_LEVEL: 'silent',
+      // JWT_SECRET became required in Sprint 2B M3 (env.ts validates it at
+      // import time); tests pin a fixed value so runs are deterministic.
+      JWT_SECRET: 'test-only-jwt-secret-0123456789abcdef0123456789abcdef',
     },
     coverage: {
       provider: 'v8',

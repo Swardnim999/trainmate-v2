@@ -59,6 +59,11 @@ services:
       HOST: 0.0.0.0
       PORT: 3000
       CORS_ORIGIN: http://localhost:5173
+      # Dev-only secret for local compose. Override in any real deployment
+      # (>= 32 chars, generated with randomBytes(48).toString('base64url')).
+      JWT_SECRET: local-dev-jwt-secret-0123456789abcdef0123456789abcdef
+      API_PUBLIC_ORIGIN: http://localhost:3000
+      AUTH_ALLOWED_REDIRECT_ORIGINS: http://localhost:5173
       DATABASE_URL: postgresql://trainmate:trainmate_dev@postgres:5432/trainmate
     ports:
       - '3000:3000'

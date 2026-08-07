@@ -1,8 +1,21 @@
 // TrainMate v2 — Prisma schema
 //
-// Sprint 1: foundation only. The datasource is declared so `prisma generate`
-// and `prisma migrate` work out of the box. No models yet — the 1:1 port of
-// the Postgres schema lands in Phase 2.
+// Sprint 2B, Milestone 1: the authentication module's three tables — a faithful
+// port of Auth-Design §10 (Database schema) / §11 (Prisma models). Business
+// tables (profiles, journeys, requests, messages, ...) land in later milestones
+// of Phase 2.
+//
+// Design-faithful mapping notes (Auth-Design §11):
+//   - uuid  -> String @db.Uuid            (Postgres `uuid`, identity anchor)
+//   - timestamptz -> DateTime @db.Timestamptz(3)
+//       Prisma's plain `DateTime` maps to `timestamp(3)` WITHOUT time zone; the
+//       design (§10) specifies timestamptz, so every timestamp column pins the
+//       timezone-aware native type explicitly.
+//   - The `email_verifications.type` CHECK constraint and the `users` updated_at
+//     trigger are NOT expressible in Prisma — they are added as raw SQL inside
+//     the migration (Auth-Design §10.1, §10.3, §11).
+//   - Indexes beyond `@unique` (refresh_tokens family_id / expires_at) are
+//     declared here with @@index, matching Auth-Design §10.2.
 
 generator client {
   provider = "prisma-client-js"
@@ -11,4 +24,63 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+/// Identity anchor — maps Supabase `auth.users` (Auth-Design §10.1, §19.1).
+/// UUIDs, bcrypt hashes and `email_confirmed_at` carry over verbatim at
+/// migration; GoTrue sessions do NOT (§19.2 — one-time re-login at cutover).
+model User {
+  id               String    @id @default(uuid()) @db.Uuid
+  email            String    @unique
+  passwordHash     String    @map("password_hash")
+  emailConfirmedAt DateTime? @map("email_confirmed_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  refreshTokens      RefreshToken[]
+  emailVerifications EmailVerification[]
+
+  @@map("users")
+}
+
+/// Server-side refresh sessions (Auth-Design §5, §10.2). Opaque 32-byte
+/// CSPRNG values stored SHA-256-hashed; `family_id` groups a rotation chain
+/// for reuse detection; `replaced_by_token_hash` is the reuse forensics chain
+/// pointer. Sessions die with the account (ON DELETE CASCADE).
+model RefreshToken {
+  id                  String    @id @default(uuid()) @db.Uuid
+  userId              String    @map("user_id") @db.Uuid
+  familyId            String    @map("family_id") @db.Uuid
+  tokenHash           String    @unique @map("token_hash")
+  expiresAt           DateTime  @map("expires_at") @db.Timestamptz(3)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  revokedAt           DateTime? @map("revoked_at") @db.Timestamptz(3)
+  replacedByTokenHash String?   @map("replaced_by_token_hash")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Auth-Design §10.2: lookup by user, family (reuse detection), and a
+  // pruning-scan index on expiry. `token_hash` is @unique above.
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+/// One-time email tokens — `type` is 'signup' (email verification, §6) or
+/// 'password_reset' (§7), enforced by a raw-SQL CHECK in the migration and at
+/// the app layer (Zod) per Auth-Design §10.3/§11. `consumed_at` set atomically
+/// with the consuming write; single-use.
+model EmailVerification {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  type       String
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("email_verifications")
 }
