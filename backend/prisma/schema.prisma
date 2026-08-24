@@ -39,6 +39,10 @@ model User {
 
   refreshTokens      RefreshToken[]
   emailVerifications EmailVerification[]
+  blocksInitiated    BlockedUser[]       @relation("BlocksInitiated")
+  blocksReceived     BlockedUser[]       @relation("BlocksReceived")
+  reportsFiled       UserReport[]        @relation("ReportsFiled")
+  reportsReceived    UserReport[]        @relation("ReportsReceived")
 
   @@map("users")
 }
@@ -83,4 +87,40 @@ model EmailVerification {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("email_verifications")
+}
+
+/// Mutual and directional block records (Spec §3.2, §6.7; Roadmap Phase 5).
+/// Enforces uniqueness on (blocker_id, blocked_id).
+/// Foreign keys link to users table with ON DELETE CASCADE.
+model BlockedUser {
+  id        String   @id @default(uuid()) @db.Uuid
+  blockerId String   @map("blocker_id") @db.Uuid
+  blockedId String   @map("blocked_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  blocker User @relation("BlocksInitiated", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("BlocksReceived", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId, blockedId])
+  @@index([blockedId, blockerId])
+  @@map("blocked_users")
+}
+
+/// User reports for safety and moderation (Spec §3.2, §6.8; Roadmap Phase 5).
+/// reason is free text (no category enum, nullable).
+/// Foreign keys link to users table with ON DELETE CASCADE.
+model UserReport {
+  id         String   @id @default(uuid()) @db.Uuid
+  reporterId String   @map("reporter_id") @db.Uuid
+  reportedId String   @map("reported_id") @db.Uuid
+  reason     String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  reporter User @relation("ReportsFiled", fields: [reporterId], references: [id], onDelete: Cascade)
+  reported User @relation("ReportsReceived", fields: [reportedId], references: [id], onDelete: Cascade)
+
+  @@index([reporterId])
+  @@index([reportedId])
+  @@map("user_reports")
 }

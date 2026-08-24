@@ -42,3 +42,14 @@ export function validateQuery(schema: ZodType) {
     }
   };
 }
+
+export function validateParams(schema: ZodType) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    try {
+      req.validated = { ...req.validated, params: schema.parse(req.params) };
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+}

@@ -3,7 +3,7 @@ import request from 'supertest';
 import { createApp } from '../../src/app.ts';
 import type { Express } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { getTestPrisma, createTestAuthService } from '../setup.integration.ts';
+import { getTestPrisma, createTestAuthService, canRunIntegration } from '../setup.integration.ts';
 import { AuthService } from '../../src/services/auth.service.ts';
 import { tokenOps } from '../../src/utils/tokens.ts';
 import {
@@ -42,7 +42,7 @@ class CapturingEmailSender implements EmailSender {
   }
 }
 
-describe('Auth lifecycle — database-backed integration tests', () => {
+describe.skipIf(!canRunIntegration)('Auth lifecycle — database-backed integration tests', () => {
   let prisma: PrismaClient;
   let authService: AuthService;
   let app: Express;

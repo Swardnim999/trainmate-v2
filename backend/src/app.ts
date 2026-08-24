@@ -10,8 +10,10 @@ import { notFoundHandler } from './middleware/not-found.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { healthRouter } from './routes/health.routes.js';
 import { createAuthRouter } from './routes/auth.routes.js';
+import { createModerationRouter } from './routes/moderation.routes.js';
 import type { RateLimitStore } from './middleware/rate-limit.js';
 import type { AuthService } from './services/auth.service.js';
+import type { ModerationService } from './services/moderation.service.js';
 
 /** Parse a comma-separated CORS_ORIGIN into an origin allowlist. */
 function parseCorsOrigins(value: string): string[] {
@@ -34,7 +36,12 @@ function parseCorsOrigins(value: string): string[] {
  * store; production omits them and gets the real service + shared in-memory store.
  */
 export function createApp(
-  options: { auth?: AuthService; rateLimitStore?: RateLimitStore; now?: () => Date } = {},
+  options: {
+    auth?: AuthService;
+    moderation?: ModerationService;
+    rateLimitStore?: RateLimitStore;
+    now?: () => Date;
+  } = {},
 ): Express {
   const app = express();
 
@@ -73,6 +80,7 @@ export function createApp(
       now: options.now,
     }),
   );
+  app.use(createModerationRouter({ moderation: options.moderation }));
 
   // Terminal handlers — order matters: 404 first, then the error handler.
   app.use(notFoundHandler);

@@ -81,7 +81,7 @@ function stopTestDb(): void {
  */
 async function truncateAll(): Promise<void> {
   await prisma.$executeRawUnsafe(`
-    TRUNCATE TABLE "email_verifications", "refresh_tokens", "users" RESTART IDENTITY CASCADE;
+    TRUNCATE TABLE "user_reports", "blocked_users", "email_verifications", "refresh_tokens", "users" RESTART IDENTITY CASCADE;
   `);
 }
 
@@ -100,7 +100,7 @@ async function cleanup(): Promise<void> {
   await truncateAll();
 }
 
-const canRunIntegration = checkDockerAvailable();
+export const canRunIntegration = checkDockerAvailable();
 
 if (!canRunIntegration) {
   console.warn('[integration] Docker not available — skipping integration tests');
@@ -207,6 +207,47 @@ export async function createTestAuthService(
       .filter(Boolean),
     defaultRedirectOrigin: env.CORS_ORIGIN,
     now: () => new Date(),
+  });
+}
+
+/**
+ * Creates a real ModerationService wired to the test database.
+ */
+export async function createTestModerationService(): Promise<
+  import('../src/services/moderation.service.ts').ModerationService
+> {
+  const { ModerationService } = await import('../src/services/moderation.service.ts');
+  const { BlockedUserRepository } = await import('../src/repositories/blocked-users.repo.ts');
+  const { UserReportRepository } = await import('../src/repositories/user-reports.repo.ts');
+  const { UserRepository } = await import('../src/repositories/users.repo.ts');
+  const { AccessService } = await import('../src/services/access.service.ts');
+
+  const testPrisma = getTestPrisma();
+  const blockedUsers = new BlockedUserRepository(testPrisma);
+  const userReports = new UserReportRepository(testPrisma);
+  const users = new UserRepository(testPrisma);
+  const access = new AccessService({ blockedUsers });
+
+  return new ModerationService({
+    blockedUsers,
+    userReports,
+    users,
+    access,
+  });
+}
+
+/**
+ * Creates a real AccessService wired to the test database.
+ */
+export async function createTestAccessService(): Promise<
+  import('../src/services/access.service.ts').AccessService
+> {
+  const { AccessService } = await import('../src/services/access.service.ts');
+  const { BlockedUserRepository } = await import('../src/repositories/blocked-users.repo.ts');
+
+  const testPrisma = getTestPrisma();
+  return new AccessService({
+    blockedUsers: new BlockedUserRepository(testPrisma),
   });
 }
 
