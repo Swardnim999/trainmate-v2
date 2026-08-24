@@ -7,15 +7,39 @@ import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { APP_VERSION, SERVICE_NAME } from './config/constants.js';
 import { logger } from './utils/logger.js';
+import { initSocketServer } from './sockets/index.js';
+import { JwtService } from './utils/jwt.js';
+import { ConversationRepository } from './repositories/conversations.repo.js';
+import { MessageService } from './services/message.service.js';
+import { ConversationService } from './services/conversation.service.js';
 
-const app = createApp();
-const server = createServer(app);
+const jwtService = new JwtService(env.JWT_SECRET);
+const conversationsRepo = new ConversationRepository();
+
+const server = createServer();
+
+const { io, broadcaster } = initSocketServer({
+  httpServer: server,
+  jwtService,
+  conversationsRepo,
+  corsOrigin: env.CORS_ORIGIN.split(',').map((o) => o.trim()),
+});
+
+const conversationService = new ConversationService({ broadcaster });
+const messageService = new MessageService({ broadcaster });
+
+const app = createApp({
+  conversationService,
+  messageService,
+});
+
+server.on('request', app);
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 let shuttingDown = false;
 
-/** Close the HTTP server, then exit. Force-exits after the timeout. */
+/** Close the HTTP and Socket.IO server, then exit. Force-exits after the timeout. */
 function shutdown(signal: NodeJS.Signals): void {
   if (shuttingDown) return;
   shuttingDown = true;
@@ -27,18 +51,21 @@ function shutdown(signal: NodeJS.Signals): void {
     // An operator-initiated drain that overruns its budget is a best-effort
     // stop, not a crash: exit 0 so orchestrators (k8s, Docker restart policy)
     // don't record a routine deploy as a failure.
+    io.close();
     server.closeAllConnections();
     process.exit(0);
   }, SHUTDOWN_TIMEOUT_MS);
   forceExit.unref();
 
-  server.close((err) => {
-    if (err) {
-      logger.error({ err }, 'error while closing server');
-      process.exit(1);
-    }
-    logger.info('server closed cleanly');
-    process.exit(0);
+  io.close(() => {
+    server.close((err) => {
+      if (err) {
+        logger.error({ err }, 'error while closing server');
+        process.exit(1);
+      }
+      logger.info('server closed cleanly');
+      process.exit(0);
+    });
   });
 }
 

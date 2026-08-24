@@ -5,6 +5,9 @@ import { ConversationRepository } from '../repositories/conversations.repo.js';
 import { ProfileRepository } from '../repositories/profiles.repo.js';
 import { AccessService } from './access.service.js';
 import { AppError, NotFoundError } from '../utils/errors.js';
+import { MessageSerializer } from '../serializers/message.serializer.js';
+import { ConversationSerializer } from '../serializers/conversation.serializer.js';
+import type { RealtimeBroadcaster } from '../sockets/broadcaster.js';
 import { prisma } from '../lib/prisma.js';
 
 export interface SendMessageDto {
@@ -21,12 +24,13 @@ export interface MessageServiceDeps {
   conversations?: ConversationRepository;
   profiles?: ProfileRepository;
   access?: AccessService;
+  broadcaster?: RealtimeBroadcaster;
   db?: PrismaClient;
 }
 
 /**
  * MessageService — Business logic for messages, atomic sends, read receipts, and unread counts
- * (Spec §3.2, §6.5, §6.6, §9.6; Messages-Design §11).
+ * (Spec §3.2, §6.5, §6.6, §9.6; Messages-Design §11; Realtime-Design §11).
  */
 export class MessageService {
   private readonly messages: MessageRepository;
@@ -34,6 +38,7 @@ export class MessageService {
   private readonly conversations: ConversationRepository;
   private readonly profiles: ProfileRepository;
   private readonly access: AccessService;
+  private readonly broadcaster?: RealtimeBroadcaster;
   private readonly db: PrismaClient;
 
   constructor(deps: Partial<MessageServiceDeps> = {}) {
@@ -43,6 +48,7 @@ export class MessageService {
     this.conversations = deps.conversations ?? new ConversationRepository(this.db);
     this.profiles = deps.profiles ?? new ProfileRepository(this.db);
     this.access = deps.access ?? new AccessService({ db: this.db });
+    this.broadcaster = deps.broadcaster;
   }
 
   /**
@@ -102,7 +108,7 @@ export class MessageService {
       : input.text;
 
     // Atomic transaction: Insert message + bump conversation preview
-    return this.db.$transaction(async (tx) => {
+    const result = await this.db.$transaction(async (tx) => {
       const message = await this.messages.createInTx(
         {
           conversationId,
@@ -120,7 +126,7 @@ export class MessageService {
         tx,
       );
 
-      await tx.conversation.update({
+      const updatedConv = await tx.conversation.update({
         where: { id: conversationId },
         data: {
           lastMessage: preview.substring(0, 255),
@@ -128,8 +134,22 @@ export class MessageService {
         },
       });
 
-      return message;
+      return { message, updatedConv };
     });
+
+    // Realtime broadcast (executed strictly post-commit)
+    if (this.broadcaster) {
+      this.broadcaster.broadcastNewMessage(
+        conversationId,
+        MessageSerializer.toResponse(result.message),
+      );
+      this.broadcaster.broadcastConversationUpdated(
+        result.updatedConv.participants,
+        ConversationSerializer.toResponse(result.updatedConv),
+      );
+    }
+
+    return result.message;
   }
 
   /**
@@ -174,6 +194,17 @@ export class MessageService {
       throw new NotFoundError('Conversation not found');
     }
 
-    return this.lastRead.upsert(callerId, conversationId, new Date());
+    const lastRead = await this.lastRead.upsert(callerId, conversationId, new Date());
+
+    // Realtime broadcast (executed strictly post-commit)
+    if (this.broadcaster) {
+      this.broadcaster.broadcastLastRead(
+        conversationId,
+        callerId,
+        MessageSerializer.toLastReadResponse(lastRead),
+      );
+    }
+
+    return lastRead;
   }
 }

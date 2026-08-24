@@ -3,6 +3,8 @@ import { ConversationRepository } from '../repositories/conversations.repo.js';
 import { ProfileRepository } from '../repositories/profiles.repo.js';
 import { AccessService } from './access.service.js';
 import { AppError, NotFoundError } from '../utils/errors.js';
+import { ConversationSerializer } from '../serializers/conversation.serializer.js';
+import type { RealtimeBroadcaster } from '../sockets/broadcaster.js';
 import { prisma } from '../lib/prisma.js';
 
 export interface CreateConversationDto {
@@ -16,22 +18,25 @@ export interface ConversationServiceDeps {
   conversations?: ConversationRepository;
   profiles?: ProfileRepository;
   access?: AccessService;
+  broadcaster?: RealtimeBroadcaster;
   db?: PrismaClient;
 }
 
 /**
  * ConversationService — Business logic for 1-to-1 companion chat rooms and soft-delete
- * (Spec §3.2, §6.4, §9.5; Conversations-Design §11.2).
+ * (Spec §3.2, §6.4, §9.5; Conversations-Design §11.2; Realtime-Design §11).
  */
 export class ConversationService {
   private readonly conversations: ConversationRepository;
   private readonly profiles: ProfileRepository;
   private readonly access: AccessService;
+  private readonly broadcaster?: RealtimeBroadcaster;
 
   constructor(deps: Partial<ConversationServiceDeps> = {}) {
     this.conversations = deps.conversations ?? new ConversationRepository(deps.db ?? prisma);
     this.profiles = deps.profiles ?? new ProfileRepository(deps.db ?? prisma);
     this.access = deps.access ?? new AccessService({ db: deps.db ?? prisma });
+    this.broadcaster = deps.broadcaster;
   }
 
   /**
@@ -128,12 +133,21 @@ export class ConversationService {
       if (!names[otherUserId]) names[otherUserId] = otherProfile?.name || 'User';
     }
 
-    return this.conversations.create({
+    const conv = await this.conversations.create({
       participants: input.participants,
       participantNames: names,
       trainNumber: input.trainNumber ?? null,
       travelDate: travelDateObj,
     });
+
+    if (this.broadcaster) {
+      this.broadcaster.broadcastConversationUpdated(
+        conv.participants,
+        ConversationSerializer.toResponse(conv),
+      );
+    }
+
+    return conv;
   }
 
   /**
