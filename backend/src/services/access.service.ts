@@ -144,18 +144,24 @@ export class AccessService {
 
   /** Checks if an accepted companion request exists between userA and userB. */
   async hasAcceptedRequest(userA: string, userB: string): Promise<boolean> {
+    if (!isValidUuid(userA) || !isValidUuid(userB) || userA === userB) {
+      return false;
+    }
+
     if (this.contextual?.hasAcceptedRequest) {
       return this.contextual.hasAcceptedRequest(userA, userB);
     }
     try {
-      const result = await this.db.$queryRaw<Array<{ count: bigint }>>`
-        SELECT COUNT(*)::bigint as count
-        FROM "requests"
-        WHERE status = 'accepted'
-          AND ((from_user_id = ${userA}::uuid AND to_user_id = ${userB}::uuid)
-            OR (to_user_id = ${userA}::uuid AND from_user_id = ${userB}::uuid))
-      `;
-      return (result[0]?.count ?? 0n) > 0n;
+      const count = await this.db.request.count({
+        where: {
+          status: 'accepted',
+          OR: [
+            { fromUserId: userA, toUserId: userB },
+            { fromUserId: userB, toUserId: userA },
+          ],
+        },
+      });
+      return count > 0;
     } catch {
       return false;
     }

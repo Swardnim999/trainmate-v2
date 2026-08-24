@@ -81,7 +81,7 @@ export function stopTestDb(): void {
  */
 async function truncateAll(): Promise<void> {
   await prisma.$executeRawUnsafe(`
-    TRUNCATE TABLE "unverified_trains", "journeys", "trains", "profiles", "user_reports", "blocked_users", "email_verifications", "refresh_tokens", "users" RESTART IDENTITY CASCADE;
+    TRUNCATE TABLE "requests", "unverified_trains", "journeys", "trains", "profiles", "user_reports", "blocked_users", "email_verifications", "refresh_tokens", "users" RESTART IDENTITY CASCADE;
   `);
 }
 
@@ -331,6 +331,33 @@ export async function createTestTrainService(): Promise<
   return new TrainService({
     trainRepo: new TrainRepository(testPrisma),
     unverifiedRepo: new UnverifiedTrainRepository(testPrisma),
+  });
+}
+
+/**
+ * Creates a real RequestService wired to the test database.
+ */
+export async function createTestRequestService(
+  accessService?: import('../src/services/access.service.ts').AccessService,
+): Promise<import('../src/services/request.service.ts').RequestService> {
+  const { RequestService } = await import('../src/services/request.service.ts');
+  const { RequestRepository } = await import('../src/repositories/requests.repo.ts');
+  const { AccessService } = await import('../src/services/access.service.ts');
+  const { BlockedUserRepository } = await import('../src/repositories/blocked-users.repo.ts');
+
+  const testPrisma = getTestPrisma();
+  const requests = new RequestRepository(testPrisma);
+  const access =
+    accessService ??
+    new AccessService({
+      blockedUsers: new BlockedUserRepository(testPrisma),
+      db: testPrisma,
+    });
+
+  return new RequestService({
+    requests,
+    access,
+    db: testPrisma,
   });
 }
 

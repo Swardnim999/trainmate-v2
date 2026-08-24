@@ -46,6 +46,8 @@ model User {
   profile            Profile?
   journeys           Journey[]
   unverifiedTrains   UnverifiedTrain[]
+  requestsSent       Request[]           @relation("RequestsSent")
+  requestsReceived   Request[]           @relation("RequestsReceived")
 
   @@map("users")
 }
@@ -195,5 +197,35 @@ model UnverifiedTrain {
 
   @@index([submittedBy])
   @@map("unverified_trains")
+}
+
+/// Companion connection request and lifecycle state machine (Spec §3.2, §6.3, §9.4; Roadmap Phase 9).
+/// Enforces status transition from pending to accepted or rejected.
+/// Foreign keys link to users table with ON DELETE CASCADE.
+model Request {
+  id                 String    @id @default(uuid()) @db.Uuid
+  fromUserId         String    @map("from_user_id") @db.Uuid
+  fromEmail          String?   @map("from_email")
+  fromName           String?   @map("from_name")
+  toUserId           String    @map("to_user_id") @db.Uuid
+  toEmail            String?   @map("to_email")
+  toName             String?   @map("to_name")
+  trainNumber        String?   @map("train_number")
+  travelDate         DateTime? @map("travel_date") @db.Date
+  boardingStation    String?   @map("boarding_station")
+  destinationStation String?   @map("destination_station")
+  status             String    @default("pending")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  fromUser User @relation("RequestsSent", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser   User @relation("RequestsReceived", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@index([status])
+  @@index([status, fromUserId, toUserId])
+  @@index([toUserId, status])
+  @@map("requests")
 }
 

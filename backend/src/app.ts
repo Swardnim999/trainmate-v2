@@ -14,12 +14,14 @@ import { createModerationRouter } from './routes/moderation.routes.js';
 import { createProfileRouter } from './routes/profile.routes.js';
 import { createJourneyRouter } from './routes/journeys.routes.js';
 import { createTrainRouter } from './routes/trains.routes.js';
+import { createRequestRouter } from './routes/requests.routes.js';
 import type { RateLimitStore } from './middleware/rate-limit.js';
 import type { AuthService } from './services/auth.service.js';
 import type { ModerationService } from './services/moderation.service.js';
 import type { ProfileService } from './services/profile.service.js';
 import type { JourneyService } from './services/journey.service.js';
 import type { TrainService } from './services/train.service.js';
+import type { RequestService } from './services/request.service.js';
 
 /** Parse a comma-separated CORS_ORIGIN into an origin allowlist. */
 function parseCorsOrigins(value: string): string[] {
@@ -48,6 +50,7 @@ export function createApp(
     profileService?: ProfileService;
     journeyService?: JourneyService;
     trainService?: TrainService;
+    requestService?: RequestService;
     rateLimitStore?: RateLimitStore;
     now?: () => Date;
   } = {},
@@ -93,6 +96,7 @@ export function createApp(
   app.use(createProfileRouter({ profileService: options.profileService }));
   app.use(createJourneyRouter({ journeyService: options.journeyService }));
   app.use(createTrainRouter({ trainService: options.trainService }));
+  app.use(createRequestRouter({ requestService: options.requestService }));
 
   // Terminal handlers — order matters: 404 first, then the error handler.
   app.use(notFoundHandler);
