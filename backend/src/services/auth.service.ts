@@ -98,7 +98,14 @@ export interface AuthServiceDeps {
   bootstrapProfile?: (userId: string) => Promise<void>;
 }
 
-const noopBootstrap = async (): Promise<void> => undefined;
+import { ProfileRepository } from '../repositories/profiles.repo.js';
+
+const defaultBootstrapProfile =
+  (db: PrismaClient) =>
+  async (userId: string): Promise<void> => {
+    const repo = new ProfileRepository(db);
+    await repo.findOrCreate(userId);
+  };
 
 /** Parses the allowlist env (comma-separated), falling back to CORS_ORIGIN. */
 function defaultRedirectOrigins(): string[] {
@@ -146,7 +153,7 @@ export class AuthService {
     this.redirectOrigins = origins;
     this.defaultRedirectOrigin = deps.defaultRedirectOrigin ?? origins[0] ?? env.CORS_ORIGIN;
     this.now = deps.now ?? (() => new Date());
-    this.bootstrapProfile = deps.bootstrapProfile ?? noopBootstrap;
+    this.bootstrapProfile = deps.bootstrapProfile ?? defaultBootstrapProfile(this.db);
   }
 
   /* ---------------------------------------------------------------------- */

@@ -43,6 +43,7 @@ model User {
   blocksReceived     BlockedUser[]       @relation("BlocksReceived")
   reportsFiled       UserReport[]        @relation("ReportsFiled")
   reportsReceived    UserReport[]        @relation("ReportsReceived")
+  profile            Profile?
 
   @@map("users")
 }
@@ -124,3 +125,23 @@ model UserReport {
   @@index([reportedId])
   @@map("user_reports")
 }
+
+/// User profile information and public identity (Spec §3.2, §6.1; Roadmap Phase 6).
+/// 1:1 relationship with User model, primary key is id (matching userId).
+/// Foreign key onDelete: Cascade ensures profile is purged when User is deleted.
+model Profile {
+  id        String   @id @db.Uuid
+  name      String?
+  bio       String?
+  hobbies   String?
+  college   String?
+  gender    String?
+  avatarUrl String?  @map("avatar_url")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [id], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+

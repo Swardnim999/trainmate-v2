@@ -104,3 +104,118 @@ describe('AccessService.getSymmetricBlockedUserIds', () => {
     expect(repo.findSymmetricBlockedIds).toHaveBeenCalledWith(USER_A);
   });
 });
+
+describe('AccessService.canViewProfile — Contextual Visibility Truth Table (Spec §6.1)', () => {
+  it('returns false for invalid UUIDs', async () => {
+    const access = new AccessService();
+    expect(await access.canViewProfile('invalid', USER_B)).toBe(false);
+    expect(await access.canViewProfile(USER_A, 'invalid')).toBe(false);
+  });
+
+  it('returns true when requester === target (self-ownership)', async () => {
+    const repo = createMockBlockedUserRepo();
+    const access = new AccessService({
+      blockedUsers: repo as unknown as BlockedUserRepository,
+    });
+
+    const result = await access.canViewProfile(USER_A, USER_A);
+
+    expect(result).toBe(true);
+    expect(repo.isBlocked).not.toHaveBeenCalled();
+  });
+
+  it('returns false when blocked, even if contextual relationships exist', async () => {
+    const repo = createMockBlockedUserRepo();
+    repo.isBlocked.mockResolvedValue(true);
+    const mockContextual = {
+      hasSharedJourney: vi.fn().mockResolvedValue(true),
+      hasAcceptedRequest: vi.fn().mockResolvedValue(true),
+      hasSharedConversation: vi.fn().mockResolvedValue(true),
+    };
+    const access = new AccessService({
+      blockedUsers: repo as unknown as BlockedUserRepository,
+      contextual: mockContextual,
+    });
+
+    const result = await access.canViewProfile(USER_A, USER_B);
+
+    expect(result).toBe(false);
+    expect(repo.isBlocked).toHaveBeenCalledWith(USER_A, USER_B);
+    expect(mockContextual.hasSharedJourney).not.toHaveBeenCalled();
+  });
+
+  it('returns true when shared journey exists (and unblocked)', async () => {
+    const repo = createMockBlockedUserRepo();
+    repo.isBlocked.mockResolvedValue(false);
+    const mockContextual = {
+      hasSharedJourney: vi.fn().mockResolvedValue(true),
+      hasAcceptedRequest: vi.fn().mockResolvedValue(false),
+      hasSharedConversation: vi.fn().mockResolvedValue(false),
+    };
+    const access = new AccessService({
+      blockedUsers: repo as unknown as BlockedUserRepository,
+      contextual: mockContextual,
+    });
+
+    const result = await access.canViewProfile(USER_A, USER_B);
+
+    expect(result).toBe(true);
+    expect(mockContextual.hasSharedJourney).toHaveBeenCalledWith(USER_A, USER_B);
+  });
+
+  it('returns true when accepted request exists (and unblocked)', async () => {
+    const repo = createMockBlockedUserRepo();
+    repo.isBlocked.mockResolvedValue(false);
+    const mockContextual = {
+      hasSharedJourney: vi.fn().mockResolvedValue(false),
+      hasAcceptedRequest: vi.fn().mockResolvedValue(true),
+      hasSharedConversation: vi.fn().mockResolvedValue(false),
+    };
+    const access = new AccessService({
+      blockedUsers: repo as unknown as BlockedUserRepository,
+      contextual: mockContextual,
+    });
+
+    const result = await access.canViewProfile(USER_A, USER_B);
+
+    expect(result).toBe(true);
+    expect(mockContextual.hasAcceptedRequest).toHaveBeenCalledWith(USER_A, USER_B);
+  });
+
+  it('returns true when shared active conversation exists (and unblocked)', async () => {
+    const repo = createMockBlockedUserRepo();
+    repo.isBlocked.mockResolvedValue(false);
+    const mockContextual = {
+      hasSharedJourney: vi.fn().mockResolvedValue(false),
+      hasAcceptedRequest: vi.fn().mockResolvedValue(false),
+      hasSharedConversation: vi.fn().mockResolvedValue(true),
+    };
+    const access = new AccessService({
+      blockedUsers: repo as unknown as BlockedUserRepository,
+      contextual: mockContextual,
+    });
+
+    const result = await access.canViewProfile(USER_A, USER_B);
+
+    expect(result).toBe(true);
+    expect(mockContextual.hasSharedConversation).toHaveBeenCalledWith(USER_A, USER_B);
+  });
+
+  it('returns false for complete stranger (unblocked, but no shared context)', async () => {
+    const repo = createMockBlockedUserRepo();
+    repo.isBlocked.mockResolvedValue(false);
+    const mockContextual = {
+      hasSharedJourney: vi.fn().mockResolvedValue(false),
+      hasAcceptedRequest: vi.fn().mockResolvedValue(false),
+      hasSharedConversation: vi.fn().mockResolvedValue(false),
+    };
+    const access = new AccessService({
+      blockedUsers: repo as unknown as BlockedUserRepository,
+      contextual: mockContextual,
+    });
+
+    const result = await access.canViewProfile(USER_A, USER_B);
+
+    expect(result).toBe(false);
+  });
+});

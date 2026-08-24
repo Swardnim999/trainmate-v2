@@ -80,6 +80,12 @@ function createMockDb() {
       updateMany: vi.fn(),
       deleteMany: vi.fn(),
     },
+    profile: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({ id: USER_ID }),
+      update: vi.fn(),
+      delete: vi.fn(),
+    },
   };
   const withTx = db as MockDb & { $transaction: ReturnType<typeof vi.fn> };
   withTx.$transaction = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(withTx));
