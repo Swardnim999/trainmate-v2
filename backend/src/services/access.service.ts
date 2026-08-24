@@ -169,17 +169,22 @@ export class AccessService {
 
   /** Checks if userA and userB are participants in a shared active conversation. */
   async hasSharedConversation(userA: string, userB: string): Promise<boolean> {
+    if (!isValidUuid(userA) || !isValidUuid(userB) || userA === userB) {
+      return false;
+    }
+
     if (this.contextual?.hasSharedConversation) {
       return this.contextual.hasSharedConversation(userA, userB);
     }
     try {
-      const result = await this.db.$queryRaw<Array<{ count: bigint }>>`
-        SELECT COUNT(*)::bigint as count
-        FROM "conversations"
-        WHERE ${userA}::uuid = ANY(participants)
-          AND ${userB}::uuid = ANY(participants)
-      `;
-      return (result[0]?.count ?? 0n) > 0n;
+      const count = await this.db.conversation.count({
+        where: {
+          participants: {
+            hasEvery: [userA, userB],
+          },
+        },
+      });
+      return count > 0;
     } catch {
       return false;
     }

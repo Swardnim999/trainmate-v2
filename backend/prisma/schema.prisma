@@ -229,3 +229,20 @@ model Request {
   @@map("requests")
 }
 
+/// Conversation aggregate for 1-to-1 companion chat rooms (Spec §3.2, §6.4, §9.5; Roadmap Phase 10).
+/// Immutable fields protected by service layer and database trigger.
+model Conversation {
+  id               String    @id @default(uuid()) @db.Uuid
+  participants     String[]  @db.Uuid
+  participantNames Json      @default("{}") @map("participant_names")
+  trainNumber      String?   @map("train_number")
+  travelDate       DateTime? @map("travel_date") @db.Date
+  lastMessage      String?   @default("") @map("last_message")
+  lastMessageTime  DateTime? @default(now()) @map("last_message_time") @db.Timestamptz(3)
+  deletedFor       String[]  @default([]) @map("deleted_for") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([lastMessageTime(sort: Desc)])
+  @@map("conversations")
+}
+
