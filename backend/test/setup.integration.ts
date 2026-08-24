@@ -64,7 +64,7 @@ function runMigrations(): void {
   });
 }
 
-function stopTestDb(): void {
+export function stopTestDb(): void {
   try {
     execSync('docker compose --profile test down -v', {
       cwd: process.cwd(),
@@ -81,7 +81,7 @@ function stopTestDb(): void {
  */
 async function truncateAll(): Promise<void> {
   await prisma.$executeRawUnsafe(`
-    TRUNCATE TABLE "profiles", "user_reports", "blocked_users", "email_verifications", "refresh_tokens", "users" RESTART IDENTITY CASCADE;
+    TRUNCATE TABLE "unverified_trains", "journeys", "trains", "profiles", "user_reports", "blocked_users", "email_verifications", "refresh_tokens", "users" RESTART IDENTITY CASCADE;
   `);
 }
 
@@ -133,9 +133,7 @@ afterAll(async () => {
   }
 
   // Clean up
-  await prisma.$disconnect();
-  globalThis.__TEST_PRISMA__ = undefined;
-  stopTestDb();
+  await prisma?.$disconnect();
 });
 
 beforeEach(async () => {
@@ -278,6 +276,61 @@ export async function createTestProfileService(
     profiles,
     users,
     access,
+  });
+}
+
+/**
+ * Creates a real JourneyService wired to the test database.
+ */
+export async function createTestJourneyService(
+  accessService?: import('../src/services/access.service.ts').AccessService,
+): Promise<import('../src/services/journey.service.ts').JourneyService> {
+  const { JourneyService } = await import('../src/services/journey.service.ts');
+  const { JourneyRepository } = await import('../src/repositories/journeys.repo.ts');
+  const { TrainRepository } = await import('../src/repositories/trains.repo.ts');
+  const { UnverifiedTrainRepository } =
+    await import('../src/repositories/unverified-trains.repo.ts');
+  const { ProfileRepository } = await import('../src/repositories/profiles.repo.ts');
+  const { AccessService } = await import('../src/services/access.service.ts');
+  const { BlockedUserRepository } = await import('../src/repositories/blocked-users.repo.ts');
+
+  const testPrisma = getTestPrisma();
+  const journeys = new JourneyRepository(testPrisma);
+  const trains = new TrainRepository(testPrisma);
+  const unverifiedTrains = new UnverifiedTrainRepository(testPrisma);
+  const profiles = new ProfileRepository(testPrisma);
+  const access =
+    accessService ??
+    new AccessService({
+      blockedUsers: new BlockedUserRepository(testPrisma),
+      db: testPrisma,
+    });
+
+  return new JourneyService({
+    journeys,
+    trains,
+    unverifiedTrains,
+    profiles,
+    access,
+    db: testPrisma,
+  });
+}
+
+/**
+ * Creates a real TrainService wired to the test database.
+ */
+export async function createTestTrainService(): Promise<
+  import('../src/services/train.service.ts').TrainService
+> {
+  const { TrainService } = await import('../src/services/train.service.ts');
+  const { TrainRepository } = await import('../src/repositories/trains.repo.ts');
+  const { UnverifiedTrainRepository } =
+    await import('../src/repositories/unverified-trains.repo.ts');
+
+  const testPrisma = getTestPrisma();
+  return new TrainService({
+    trainRepo: new TrainRepository(testPrisma),
+    unverifiedRepo: new UnverifiedTrainRepository(testPrisma),
   });
 }
 

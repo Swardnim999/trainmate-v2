@@ -178,4 +178,58 @@ export class AccessService {
       return false;
     }
   }
+
+  /**
+   * Checks if user has a journey with matching train number and travel date
+   * (Spec §6.2 `can_view_journey`).
+   */
+  async canViewJourney(
+    userId: string,
+    trainNumber: string,
+    travelDate: Date | string,
+  ): Promise<boolean> {
+    if (!isValidUuid(userId) || !trainNumber || !travelDate) {
+      return false;
+    }
+
+    const dateObj = typeof travelDate === 'string' ? new Date(travelDate) : travelDate;
+    if (isNaN(dateObj.getTime())) {
+      return false;
+    }
+
+    try {
+      const count = await this.db.journey.count({
+        where: {
+          userId,
+          trainNumber,
+          travelDate: dateObj,
+        },
+      });
+      return count > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Checks if two users share a specific journey on trainNumber and travelDate
+   * (Spec §6.3 `users_share_journey`).
+   */
+  async usersShareJourney(
+    userA: string,
+    userB: string,
+    trainNumber: string,
+    travelDate: Date | string,
+  ): Promise<boolean> {
+    if (!isValidUuid(userA) || !isValidUuid(userB) || userA === userB) {
+      return false;
+    }
+
+    const [hasA, hasB] = await Promise.all([
+      this.canViewJourney(userA, trainNumber, travelDate),
+      this.canViewJourney(userB, trainNumber, travelDate),
+    ]);
+
+    return hasA && hasB;
+  }
 }

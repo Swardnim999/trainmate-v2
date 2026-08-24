@@ -219,3 +219,77 @@ describe('AccessService.canViewProfile — Contextual Visibility Truth Table (Sp
     expect(result).toBe(false);
   });
 });
+
+describe('AccessService.canViewJourney (M8)', () => {
+  it('returns false for invalid UUID or missing train/date', async () => {
+    const access = new AccessService();
+    expect(await access.canViewJourney('not-a-uuid', '12301', '2026-09-15')).toBe(false);
+    expect(await access.canViewJourney(USER_A, '', '2026-09-15')).toBe(false);
+    expect(await access.canViewJourney(USER_A, '12301', '')).toBe(false);
+    expect(await access.canViewJourney(USER_A, '12301', 'invalid-date')).toBe(false);
+  });
+
+  it('returns true when user has matching journey in db', async () => {
+    const mockDb = {
+      journey: {
+        count: vi.fn().mockResolvedValue(1),
+      },
+    };
+    const access = new AccessService({ db: mockDb as unknown as PrismaClient });
+
+    const result = await access.canViewJourney(USER_A, '12301', '2026-09-15');
+    expect(result).toBe(true);
+    expect(mockDb.journey.count).toHaveBeenCalledWith({
+      where: {
+        userId: USER_A,
+        trainNumber: '12301',
+        travelDate: new Date('2026-09-15'),
+      },
+    });
+  });
+
+  it('returns false when user does not have matching journey in db', async () => {
+    const mockDb = {
+      journey: {
+        count: vi.fn().mockResolvedValue(0),
+      },
+    };
+    const access = new AccessService({ db: mockDb as unknown as PrismaClient });
+
+    const result = await access.canViewJourney(USER_A, '12301', '2026-09-15');
+    expect(result).toBe(false);
+  });
+});
+
+describe('AccessService.usersShareJourney (M8)', () => {
+  it('returns false if userA === userB or invalid inputs', async () => {
+    const access = new AccessService();
+    expect(await access.usersShareJourney(USER_A, USER_A, '12301', '2026-09-15')).toBe(false);
+    expect(await access.usersShareJourney('bad-id', USER_B, '12301', '2026-09-15')).toBe(false);
+  });
+
+  it('returns true when both users have journey on train and date', async () => {
+    const mockDb = {
+      journey: {
+        count: vi.fn().mockResolvedValue(1),
+      },
+    };
+    const access = new AccessService({ db: mockDb as unknown as PrismaClient });
+
+    const result = await access.usersShareJourney(USER_A, USER_B, '12301', '2026-09-15');
+    expect(result).toBe(true);
+    expect(mockDb.journey.count).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns false when only one user has journey', async () => {
+    const mockDb = {
+      journey: {
+        count: vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(0),
+      },
+    };
+    const access = new AccessService({ db: mockDb as unknown as PrismaClient });
+
+    const result = await access.usersShareJourney(USER_A, USER_B, '12301', '2026-09-15');
+    expect(result).toBe(false);
+  });
+});

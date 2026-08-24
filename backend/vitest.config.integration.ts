@@ -24,6 +24,12 @@ export default defineConfig({
     },
     testTimeout: 60_000,
     // Run integration tests sequentially to avoid DB contention
+    fileParallelism: false,
+    maxWorkers: 1,
+    minWorkers: 1,
+    sequence: {
+      concurrent: false,
+    },
     pool: 'forks',
     poolOptions: {
       forks: {

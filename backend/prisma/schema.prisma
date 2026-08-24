@@ -44,6 +44,8 @@ model User {
   reportsFiled       UserReport[]        @relation("ReportsFiled")
   reportsReceived    UserReport[]        @relation("ReportsReceived")
   profile            Profile?
+  journeys           Journey[]
+  unverifiedTrains   UnverifiedTrain[]
 
   @@map("users")
 }
@@ -143,5 +145,55 @@ model Profile {
   user User @relation(fields: [id], references: [id], onDelete: Cascade)
 
   @@map("profiles")
+}
+
+/// User journey / travel plan (Spec §3.2, §6.2, §9.2; Roadmap Phase 7 & 8).
+/// Matches are computed on exact (train_number, travel_date).
+/// Foreign key onDelete: Cascade purges journeys when the user is deleted.
+model Journey {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @map("user_id") @db.Uuid
+  userName           String?  @map("user_name")
+  trainNumber        String   @map("train_number")
+  trainName          String?  @map("train_name")
+  travelDate         DateTime @map("travel_date") @db.Date
+  coach              String?
+  boardingStation    String?  @map("boarding_station")
+  destinationStation String?  @map("destination_station")
+  college            String?
+  gender             String?
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([trainNumber, travelDate])
+  @@map("journeys")
+}
+
+/// Verified Indian Railways train reference directory (Spec §3.2, §9.3; Roadmap Phase 7).
+model Train {
+  trainNumber String   @id @map("train_number")
+  trainName   String   @map("train_name")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@map("trains")
+}
+
+/// Logging table for manually-entered trains not found in the verified directory (Spec §3.2, §9.3).
+model UnverifiedTrain {
+  id              String   @id @default(uuid()) @db.Uuid
+  trainNumber     String   @map("train_number")
+  trainName       String?  @map("train_name")
+  submittedBy     String?  @map("submitted_by") @db.Uuid
+  enteredValue    String?  @map("entered_value")
+  normalizedValue String?  @map("normalized_value")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  submitter User? @relation(fields: [submittedBy], references: [id], onDelete: SetNull)
+
+  @@index([submittedBy])
+  @@map("unverified_trains")
 }
 
