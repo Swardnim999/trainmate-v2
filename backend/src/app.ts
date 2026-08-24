@@ -17,6 +17,7 @@ import { createTrainRouter } from './routes/trains.routes.js';
 import { createRequestRouter } from './routes/requests.routes.js';
 import { createConversationRouter } from './routes/conversations.routes.js';
 import { ConversationController } from './controllers/conversation.controller.js';
+import { MessageController } from './controllers/message.controller.js';
 import type { RateLimitStore } from './middleware/rate-limit.js';
 import type { AuthService } from './services/auth.service.js';
 import type { ModerationService } from './services/moderation.service.js';
@@ -25,6 +26,7 @@ import type { JourneyService } from './services/journey.service.js';
 import type { TrainService } from './services/train.service.js';
 import type { RequestService } from './services/request.service.js';
 import type { ConversationService } from './services/conversation.service.js';
+import type { MessageService } from './services/message.service.js';
 
 /** Parse a comma-separated CORS_ORIGIN into an origin allowlist. */
 function parseCorsOrigins(value: string): string[] {
@@ -55,6 +57,7 @@ export function createApp(
     trainService?: TrainService;
     requestService?: RequestService;
     conversationService?: ConversationService;
+    messageService?: MessageService;
     rateLimitStore?: RateLimitStore;
     now?: () => Date;
   } = {},
@@ -106,6 +109,9 @@ export function createApp(
     createConversationRouter({
       conversationController: options.conversationService
         ? new ConversationController({ conversationService: options.conversationService })
+        : undefined,
+      messageController: options.messageService
+        ? new MessageController({ messageService: options.messageService })
         : undefined,
     }),
   );

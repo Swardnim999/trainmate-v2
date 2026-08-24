@@ -81,7 +81,7 @@ export function stopTestDb(): void {
  */
 async function truncateAll(): Promise<void> {
   await prisma.$executeRawUnsafe(`
-    TRUNCATE TABLE "conversations", "requests", "unverified_trains", "journeys", "trains", "profiles", "user_reports", "blocked_users", "email_verifications", "refresh_tokens", "users" RESTART IDENTITY CASCADE;
+    TRUNCATE TABLE "last_read", "messages", "conversations", "requests", "unverified_trains", "journeys", "trains", "profiles", "user_reports", "blocked_users", "email_verifications", "refresh_tokens", "users" RESTART IDENTITY CASCADE;
   `);
 }
 
@@ -384,6 +384,42 @@ export async function createTestConversationService(
     });
 
   return new ConversationService({
+    conversations,
+    profiles,
+    access,
+    db: testPrisma,
+  });
+}
+
+/**
+ * Creates a real MessageService wired to the test database.
+ */
+export async function createTestMessageService(
+  accessService?: import('../src/services/access.service.ts').AccessService,
+): Promise<import('../src/services/message.service.ts').MessageService> {
+  const { MessageService } = await import('../src/services/message.service.ts');
+  const { MessageRepository } = await import('../src/repositories/messages.repo.ts');
+  const { LastReadRepository } = await import('../src/repositories/last-read.repo.ts');
+  const { ConversationRepository } = await import('../src/repositories/conversations.repo.ts');
+  const { ProfileRepository } = await import('../src/repositories/profiles.repo.ts');
+  const { AccessService } = await import('../src/services/access.service.ts');
+  const { BlockedUserRepository } = await import('../src/repositories/blocked-users.repo.ts');
+
+  const testPrisma = getTestPrisma();
+  const messages = new MessageRepository(testPrisma);
+  const lastRead = new LastReadRepository(testPrisma);
+  const conversations = new ConversationRepository(testPrisma);
+  const profiles = new ProfileRepository(testPrisma);
+  const access =
+    accessService ??
+    new AccessService({
+      blockedUsers: new BlockedUserRepository(testPrisma),
+      db: testPrisma,
+    });
+
+  return new MessageService({
+    messages,
+    lastRead,
     conversations,
     profiles,
     access,

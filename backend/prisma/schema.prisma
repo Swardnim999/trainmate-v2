@@ -48,6 +48,8 @@ model User {
   unverifiedTrains   UnverifiedTrain[]
   requestsSent       Request[]           @relation("RequestsSent")
   requestsReceived   Request[]           @relation("RequestsReceived")
+  messages           Message[]
+  lastRead           LastRead[]
 
   @@map("users")
 }
@@ -242,7 +244,48 @@ model Conversation {
   deletedFor       String[]  @default([]) @map("deleted_for") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
+  messages Message[]
+  lastRead LastRead[]
+
   @@index([lastMessageTime(sort: Desc)])
   @@map("conversations")
+}
+
+/// Message entity for 1-to-1 conversation rooms (Spec §3.2, §6.5, §9.6; Roadmap Phase 11).
+/// Supports text messages and file attachments (images, pdf, docs, txt).
+model Message {
+  id             String    @id @default(uuid()) @db.Uuid
+  conversationId String    @map("conversation_id") @db.Uuid
+  senderId       String    @map("sender_id") @db.Uuid
+  senderName     String?   @map("sender_name")
+  text           String    @default("")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  attachmentUrl  String?   @map("attachment_url")
+  attachmentType String?   @map("attachment_type")
+  attachmentName String?   @map("attachment_name")
+  attachmentSize BigInt?   @map("attachment_size") @db.BigInt
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+  @@map("messages")
+}
+
+/// Read receipt tracking per user per conversation (Spec §3.2, §6.6, §9.6; Roadmap Phase 11).
+model LastRead {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  timestamp      DateTime @default(now()) @map("timestamp") @db.Timestamptz(3)
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, conversationId])
+  @@index([conversationId])
+  @@map("last_read")
 }
 
