@@ -34,7 +34,7 @@ function parseCorsOrigins(value: string): string[] {
  * store; production omits them and gets the real service + shared in-memory store.
  */
 export function createApp(
-  options: { auth?: AuthService; rateLimitStore?: RateLimitStore } = {},
+  options: { auth?: AuthService; rateLimitStore?: RateLimitStore; now?: () => Date } = {},
 ): Express {
   const app = express();
 
@@ -67,7 +67,11 @@ export function createApp(
   app.use('/health', healthRouter);
   app.use(
     '/auth',
-    createAuthRouter({ auth: options.auth, rateLimitStore: options.rateLimitStore }),
+    createAuthRouter({
+      auth: options.auth,
+      rateLimitStore: options.rateLimitStore,
+      now: options.now,
+    }),
   );
 
   // Terminal handlers — order matters: 404 first, then the error handler.

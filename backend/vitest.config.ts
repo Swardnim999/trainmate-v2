@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['test/**/*.test.ts'],
+    exclude: ['test/integration/**'],
     setupFiles: ['./src/test/setup.ts'],
     env: {
       // Isolate test runs from any developer `.env`: pinned, predictable, quiet.
@@ -18,5 +19,7 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.d.ts', 'src/test/**'],
     },
+    // Integration tests are in a separate config/workspace
+    testTimeout: 30_000,
   },
 });
