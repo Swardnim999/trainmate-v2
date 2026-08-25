@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { requestsApi } from '@/lib/api/requests.api';
+import { CompanionRequest } from '@/lib/api/types';
 import { useAuth } from '@/hooks/useAuth';
 
 export interface AcceptedCompanion {
@@ -13,55 +14,22 @@ export interface AcceptedCompanion {
   createdAt?: Date;
 }
 
-interface RequestDoc {
-  id: string;
-  from_user_id: string;
-  from_email?: string | null;
-  from_name?: string | null;
-  to_user_id: string;
-  to_email?: string | null;
-  to_name?: string | null;
-  status: string;
-  train_number?: string | null;
-  travel_date?: string | null;
-  created_at?: string;
-}
-
 export const useAcceptedCompanions = () => {
   const { user } = useAuth();
-  const [sentAccepted, setSentAccepted] = useState<RequestDoc[]>([]);
-  const [receivedAccepted, setReceivedAccepted] = useState<RequestDoc[]>([]);
+  const [acceptedRequests, setAcceptedRequests] = useState<CompanionRequest[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) {
-      setSentAccepted([]);
-      setReceivedAccepted([]);
+      setAcceptedRequests([]);
       setLoading(false);
       return;
     }
 
-    const fetchAcceptedRequests = async () => {
+    const fetchAccepted = async () => {
       try {
-        // Fetch accepted requests I SENT
-        const { data: sent, error: sentError } = await supabase
-          .from('requests')
-          .select('*')
-          .eq('from_user_id', user.id)
-          .eq('status', 'accepted');
-
-        if (sentError) throw sentError;
-        setSentAccepted(sent || []);
-
-        // Fetch accepted requests I RECEIVED
-        const { data: received, error: receivedError } = await supabase
-          .from('requests')
-          .select('*')
-          .eq('to_user_id', user.id)
-          .eq('status', 'accepted');
-
-        if (receivedError) throw receivedError;
-        setReceivedAccepted(received || []);
+        const data = await requestsApi.getAcceptedCompanions();
+        setAcceptedRequests(data);
       } catch (error) {
         console.error('useAcceptedCompanions - Error:', error);
       } finally {
@@ -69,68 +37,40 @@ export const useAcceptedCompanions = () => {
       }
     };
 
-    fetchAcceptedRequests();
-
-    // Set up realtime subscriptions for requests
-    const channel = supabase
-      .channel('requests-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'requests',
-          filter: `from_user_id=eq.${user.id}`
-        },
-        () => fetchAcceptedRequests()
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'requests',
-          filter: `to_user_id=eq.${user.id}`
-        },
-        () => fetchAcceptedRequests()
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    fetchAccepted();
   }, [user]);
 
-  // Merge both sent and received into a single companions array
+  // Merge into a single companions array keyed by otherUserId
   const companions = useMemo<AcceptedCompanion[]>(() => {
     if (!user) return [];
 
-    const pickDate = (val: any): Date | undefined => {
-      if (!val) return undefined;
-      return new Date(val);
-    };
-
-    // Use Map to avoid duplicates (keyed by otherUserId)
     const map = new Map<string, AcceptedCompanion>();
 
-    const ingest = (req: RequestDoc, direction: 'sent' | 'received') => {
-      const otherUserId = direction === 'sent' ? req.to_user_id : req.from_user_id;
-      const otherUserName = direction === 'sent' ? req.to_name : req.from_name;
-      const otherUserEmail = direction === 'sent' ? req.to_email : req.from_email;
-      const createdAt = pickDate(req.created_at);
+    acceptedRequests.forEach((req) => {
+      const fromId = req.from_user_id || req.fromUserId || '';
+      const toId = req.to_user_id || req.toUserId || '';
+      const isSent = fromId === user.id;
+      const direction: 'sent' | 'received' = isSent ? 'sent' : 'received';
+      const otherUserId = isSent ? toId : fromId;
+      const otherUserName = isSent
+        ? req.to_name || req.toName
+        : req.from_name || req.fromName;
+      const trainNumber = req.train_number || req.trainNumber;
+      const travelDate = req.travel_date || req.travelDate;
+      const createdAt = req.created_at || req.createdAt ? new Date(req.created_at || req.createdAt!) : undefined;
 
-      const current = map.get(otherUserId);
       const candidate: AcceptedCompanion = {
         otherUserId,
         otherUserName: otherUserName || undefined,
-        otherUserEmail: otherUserEmail || undefined,
-        trainNumber: req.train_number || undefined,
-        travelDate: req.travel_date || undefined,
+        otherUserEmail: undefined, // Email privacy preserved
+        trainNumber: trainNumber || undefined,
+        travelDate: travelDate || undefined,
         latestRequestId: req.id,
         direction,
         createdAt,
       };
 
+      const current = map.get(otherUserId);
       if (!current) {
         map.set(otherUserId, candidate);
       } else {
@@ -140,13 +80,10 @@ export const useAcceptedCompanions = () => {
           map.set(otherUserId, candidate);
         }
       }
-    };
-
-    sentAccepted.forEach((r) => ingest(r, 'sent'));
-    receivedAccepted.forEach((r) => ingest(r, 'received'));
+    });
 
     return Array.from(map.values());
-  }, [user, sentAccepted, receivedAccepted]);
+  }, [user, acceptedRequests]);
 
   return { companions, loading };
 };

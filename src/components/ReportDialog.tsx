@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { supabase } from '@/integrations/supabase/client';
+import { moderationApi } from '@/lib/api/moderation.api';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from '@/hooks/use-toast';
 
@@ -18,7 +18,7 @@ export const ReportDialog = ({
   isOpen,
   onClose,
   reportedUserId,
-  reportedUserName
+  reportedUserName,
 }: ReportDialogProps) => {
   const { user } = useAuth();
   const [reason, setReason] = useState('');
@@ -26,30 +26,22 @@ export const ReportDialog = ({
 
   const handleSubmit = async () => {
     if (!user) return;
-    
+
     setSubmitting(true);
     try {
-      const { error } = await supabase
-        .from('user_reports')
-        .insert({
-          reporter_id: user.id,
-          reported_id: reportedUserId,
-          reason: reason.trim() || null
-        });
-
-      if (error) throw error;
+      await moderationApi.reportUser(reportedUserId, reason.trim() || null);
 
       toast({
         title: 'Report submitted',
-        description: 'Thank you for helping keep our community safe.'
+        description: 'Thank you for helping keep our community safe.',
       });
       onClose();
       setReason('');
-    } catch (error) {
+    } catch {
       toast({
         title: 'Error',
         description: 'Failed to submit report. Please try again.',
-        variant: 'destructive'
+        variant: 'destructive',
       });
     } finally {
       setSubmitting(false);
@@ -62,12 +54,12 @@ export const ReportDialog = ({
         <DialogHeader>
           <DialogTitle>Report User</DialogTitle>
         </DialogHeader>
-        
+
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
             You are reporting {reportedUserName || 'this user'}. Please provide details about why you're reporting them.
           </p>
-          
+
           <div className="space-y-2">
             <Label htmlFor="reason">Reason (optional)</Label>
             <Textarea
@@ -81,7 +73,9 @@ export const ReportDialog = ({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
           <Button onClick={handleSubmit} disabled={submitting}>
             {submitting ? 'Submitting...' : 'Submit Report'}
           </Button>

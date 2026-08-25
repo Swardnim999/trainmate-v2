@@ -9,14 +9,12 @@ import { useBlockedUsers } from '@/hooks/useBlockedUsers';
 import { SkeletonCard } from '@/components/SkeletonCard';
 import { EmptyState } from '@/components/EmptyState';
 import { Button } from '@/components/ui/button';
-import { useToast } from '@/hooks/use-toast';
 import dashboardBg from '@/assets/dashboard-bg.png';
-import { supabase } from '@/integrations/supabase/client';
+import { profilesApi } from '@/lib/api/profiles.api';
 
 const Chats = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const { conversations, unreadCount, loading, getTotalUnreadCount, createConversation } = useChat();
   const { companions, loading: companionsLoading } = useAcceptedCompanions();
   const { blockedUsers, unblockUser } = useBlockedUsers();
@@ -111,12 +109,7 @@ const Chats = () => {
       if (blocked) return;
 
       // Fetch current user's display name to avoid storing email in participant_names
-      const { data: meProfile } = await supabase
-        .from('profiles')
-        .select('name')
-        .eq('id', user.id)
-        .maybeSingle();
-      const myDisplayName = meProfile?.name || 'You';
+      const myDisplayName = await profilesApi.getUserDisplayName(user.id);
 
       const participantNames: { [key: string]: string } = {
         [user.id]: myDisplayName,

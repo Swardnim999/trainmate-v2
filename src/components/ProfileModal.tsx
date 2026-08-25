@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { User, Building, Train, AlertTriangle, Ban, Heart, MapPin, Calendar, Loader2 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { profilesApi } from '@/lib/api/profiles.api';
 
 interface ProfileData {
   name?: string;
@@ -47,7 +47,7 @@ export const ProfileModal = ({
   journeyContext,
   onBlock,
   onReport,
-  actionButton
+  actionButton,
 }: ProfileModalProps) => {
   const [profile, setProfile] = useState<ProfileData | null>(initialProfile);
   const [loading, setLoading] = useState(false);
@@ -57,24 +57,19 @@ export const ProfileModal = ({
   useEffect(() => {
     const fetchFullProfile = async () => {
       if (!isOpen || !userId) return;
-      
+
       setLoading(true);
       try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('name, college, gender, bio, hobbies, avatar_url')
-          .eq('id', userId)
-          .single();
-
-        if (!error && data) {
-          setProfile(prev => ({
+        const data = await profilesApi.getUserProfile(userId);
+        if (data) {
+          setProfile((prev) => ({
             ...prev,
             name: data.name || prev?.name,
             college: data.college || prev?.college,
             gender: data.gender || prev?.gender,
-            bio: data.bio,
-            hobbies: data.hobbies,
-            avatar_url: data.avatar_url
+            bio: data.bio || undefined,
+            hobbies: data.hobbies || undefined,
+            avatar_url: data.avatar_url || undefined,
           }));
         }
       } catch (error) {
@@ -94,14 +89,21 @@ export const ProfileModal = ({
 
   if (!profile) return null;
 
-  const isSameCollege = currentUserCollege && profile.college && 
+  const isSameCollege =
+    currentUserCollege &&
+    profile.college &&
     currentUserCollege.toLowerCase() === profile.college.toLowerCase();
-  const isSameCoach = currentUserCoach && profile.coach && 
-    currentUserCoach === profile.coach;
+  const isSameCoach =
+    currentUserCoach && profile.coach && currentUserCoach === profile.coach;
 
   const getInitials = () => {
     if (profile.name) {
-      return profile.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+      return profile.name
+        .split(' ')
+        .map((n) => n[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2);
     }
     return 'U';
   };
@@ -121,7 +123,7 @@ export const ProfileModal = ({
             Traveler Profile
           </DialogTitle>
         </DialogHeader>
-        
+
         <div className="space-y-4">
           {loading ? (
             <div className="flex items-center justify-center py-8">
@@ -132,8 +134,8 @@ export const ProfileModal = ({
               {/* Profile Header */}
               <div className="flex items-center gap-4">
                 <Avatar className="h-16 w-16 ring-2 ring-border ring-offset-2 ring-offset-background">
-                  <AvatarImage 
-                    src={profile.avatar_url || undefined} 
+                  <AvatarImage
+                    src={profile.avatar_url || undefined}
                     className="object-cover"
                   />
                   <AvatarFallback className="bg-primary/10 text-primary text-lg">
@@ -157,13 +159,19 @@ export const ProfileModal = ({
               {/* Badges */}
               <div className="flex flex-wrap gap-2">
                 {isSameCollege && (
-                  <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
+                  <Badge
+                    variant="secondary"
+                    className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
+                  >
                     <Building className="h-3 w-3 mr-1" />
                     Same College
                   </Badge>
                 )}
                 {isSameCoach && (
-                  <Badge variant="secondary" className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100">
+                  <Badge
+                    variant="secondary"
+                    className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100"
+                  >
                     <Train className="h-3 w-3 mr-1" />
                     Same Coach
                   </Badge>
@@ -171,33 +179,39 @@ export const ProfileModal = ({
               </div>
 
               {/* Journey Context */}
-              {journeyContext && (journeyContext.trainNumber || journeyContext.travelDate) && (
-                <div className="p-3 rounded-lg border bg-card space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    Journey Details
-                  </p>
-                  {journeyContext.trainNumber && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <Train className="h-4 w-4 text-muted-foreground" />
-                      <span>{journeyContext.trainName || `Train ${journeyContext.trainNumber}`}</span>
-                    </div>
-                  )}
-                  {journeyContext.travelDate && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <Calendar className="h-4 w-4 text-muted-foreground" />
-                      <span>{journeyContext.travelDate}</span>
-                    </div>
-                  )}
-                  {(journeyContext.boardingStation || journeyContext.destinationStation) && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <MapPin className="h-4 w-4 text-muted-foreground" />
-                      <span>
-                        {journeyContext.boardingStation || 'N/A'} → {journeyContext.destinationStation || 'N/A'}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
+              {journeyContext &&
+                (journeyContext.trainNumber || journeyContext.travelDate) && (
+                  <div className="p-3 rounded-lg border bg-card space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                      Journey Details
+                    </p>
+                    {journeyContext.trainNumber && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Train className="h-4 w-4 text-muted-foreground" />
+                        <span>
+                          {journeyContext.trainName ||
+                            `Train ${journeyContext.trainNumber}`}
+                        </span>
+                      </div>
+                    )}
+                    {journeyContext.travelDate && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                        <span>{journeyContext.travelDate}</span>
+                      </div>
+                    )}
+                    {(journeyContext.boardingStation ||
+                      journeyContext.destinationStation) && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <MapPin className="h-4 w-4 text-muted-foreground" />
+                        <span>
+                          {journeyContext.boardingStation || 'N/A'} →{' '}
+                          {journeyContext.destinationStation || 'N/A'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
               {/* Profile Details */}
               <div className="space-y-2 pt-2 border-t">
@@ -227,7 +241,9 @@ export const ProfileModal = ({
                   <div className="flex items-center gap-2 text-sm">
                     <User className="h-4 w-4 text-muted-foreground" />
                     <span className="text-muted-foreground">Gender:</span>
-                    <span className="capitalize">{formatGender(profile.gender)}</span>
+                    <span className="capitalize">
+                      {formatGender(profile.gender)}
+                    </span>
                   </div>
                 )}
 
@@ -241,19 +257,15 @@ export const ProfileModal = ({
               </div>
 
               {/* Action Button (Send Request / Chat / etc.) */}
-              {actionButton && (
-                <div className="pt-2">
-                  {actionButton}
-                </div>
-              )}
+              {actionButton && <div className="pt-2">{actionButton}</div>}
 
               {/* Block/Report Actions */}
               {(onBlock || onReport) && (
                 <div className="flex gap-2 pt-4 border-t">
                   {onReport && (
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={onReport}
                       className="text-amber-600 hover:text-amber-700"
                     >
@@ -262,9 +274,9 @@ export const ProfileModal = ({
                     </Button>
                   )}
                   {onBlock && (
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={onBlock}
                       className="text-destructive hover:text-destructive"
                     >

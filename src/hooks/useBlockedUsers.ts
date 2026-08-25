@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { moderationApi } from '@/lib/api/moderation.api';
 import { useAuth } from '@/hooks/useAuth';
 
 export const useBlockedUsers = () => {
@@ -16,13 +16,8 @@ export const useBlockedUsers = () => {
 
     const fetchBlockedUsers = async () => {
       try {
-        const { data, error } = await supabase
-          .from('blocked_users')
-          .select('blocked_id')
-          .eq('blocker_id', user.id);
-
-        if (error) throw error;
-        setBlockedUsers(data?.map(b => b.blocked_id) || []);
+        const list = await moderationApi.getBlockedUsers();
+        setBlockedUsers(list);
       } catch (error) {
         console.error('Error fetching blocked users:', error);
       } finally {
@@ -34,15 +29,11 @@ export const useBlockedUsers = () => {
   }, [user]);
 
   const blockUser = async (blockedId: string) => {
-    if (!user) return;
+    if (!user) return false;
 
     try {
-      const { error } = await supabase
-        .from('blocked_users')
-        .insert({ blocker_id: user.id, blocked_id: blockedId });
-
-      if (error) throw error;
-      setBlockedUsers(prev => [...prev, blockedId]);
+      await moderationApi.blockUser(blockedId);
+      setBlockedUsers((prev) => (prev.includes(blockedId) ? prev : [...prev, blockedId]));
       return true;
     } catch (error) {
       console.error('Error blocking user:', error);
@@ -51,17 +42,11 @@ export const useBlockedUsers = () => {
   };
 
   const unblockUser = async (blockedId: string) => {
-    if (!user) return;
+    if (!user) return false;
 
     try {
-      const { error } = await supabase
-        .from('blocked_users')
-        .delete()
-        .eq('blocker_id', user.id)
-        .eq('blocked_id', blockedId);
-
-      if (error) throw error;
-      setBlockedUsers(prev => prev.filter(id => id !== blockedId));
+      await moderationApi.unblockUser(blockedId);
+      setBlockedUsers((prev) => prev.filter((id) => id !== blockedId));
       return true;
     } catch (error) {
       console.error('Error unblocking user:', error);

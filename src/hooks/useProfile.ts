@@ -1,17 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { profilesApi } from '@/lib/api/profiles.api';
+import { Profile } from '@/lib/api/types';
 import { useAuth } from './useAuth';
 
-export interface Profile {
-  id: string;
-  name: string | null;
-  email: string | null;
-  bio: string | null;
-  hobbies: string | null;
-  college: string | null;
-  gender: string | null;
-  avatar_url: string | null;
-}
+export type { Profile };
 
 export const useProfile = () => {
   const { user } = useAuth();
@@ -27,17 +19,8 @@ export const useProfile = () => {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, name, bio, hobbies, college, gender, avatar_url')
-        .eq('id', user.id)
-        .single();
-
-      if (error && error.code !== 'PGRST116') {
-        console.error('Error fetching profile:', error);
-      }
-      
-      setProfile(data as Profile | null);
+      const data = await profilesApi.getOwnProfile();
+      setProfile(data);
     } catch (error) {
       console.error('Error fetching profile:', error);
     } finally {
@@ -65,76 +48,33 @@ export const useProfile = () => {
     if (!user) return { error: new Error('Not authenticated') };
 
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update(updates)
-        .eq('id', user.id);
-
-      if (error) throw error;
-
-      setProfile(prev => prev ? { ...prev, ...updates } : null);
+      const updated = await profilesApi.updateOwnProfile(updates);
+      setProfile(updated);
       return { error: null };
     } catch (error) {
       console.error('Error updating profile:', error);
-      return { error };
+      return { error: error as Error };
     }
   };
 
   const uploadAvatar = async (file: File) => {
     if (!user) return { error: new Error('Not authenticated'), url: null };
 
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${user.id}/avatar.${fileExt}`;
-
     try {
-      // Delete existing avatar if any
-      await supabase.storage
-        .from('avatars')
-        .remove([fileName]);
-
-      // Upload new avatar
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(fileName, file, { upsert: true });
-
-      if (uploadError) throw uploadError;
-
-      // Bucket is private — generate a long-lived signed URL for the avatar.
-      // We store the signed URL on the profile so it can be rendered by other
-      // authenticated users (companions). The cache-buster (avatarVersion) is
-      // appended at render time via getAvatarUrl().
-      const { data: signed, error: signErr } = await supabase.storage
-        .from('avatars')
-        .createSignedUrl(fileName, 60 * 60 * 24 * 365); // 1 year
-
-      if (signErr) throw signErr;
-
-      const avatarUrl = signed?.signedUrl ?? null;
-
-      // Update profile with avatar URL
-      await updateProfile({ avatar_url: avatarUrl });
-
+      const avatarUrl = await profilesApi.uploadAvatar(file);
+      setProfile((prev) => (prev ? { ...prev, avatar_url: avatarUrl } : null));
+      refreshAvatar();
       return { error: null, url: avatarUrl };
     } catch (error) {
       console.error('Error uploading avatar:', error);
-      return { error, url: null };
+      return { error: error as Error, url: null };
     }
   };
 
   const fetchUserProfile = async (userId: string): Promise<Profile | null> => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, name, bio, hobbies, college, gender, avatar_url')
-        .eq('id', userId)
-        .single();
-
-      if (error) {
-        console.error('Error fetching user profile:', error);
-        return null;
-      }
-
-      return data as Profile;
+      const data = await profilesApi.getUserProfile(userId);
+      return data;
     } catch (error) {
       console.error('Error fetching user profile:', error);
       return null;
@@ -149,6 +89,6 @@ export const useProfile = () => {
     uploadAvatar,
     fetchUserProfile,
     getAvatarUrl,
-    refreshAvatar
+    refreshAvatar,
   };
 };

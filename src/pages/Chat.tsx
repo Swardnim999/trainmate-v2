@@ -117,10 +117,11 @@ const Chat = () => {
 
     try {
       await sendMessage(conversationId, text, attachment || undefined);
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to send message. Please try again.';
       toast({
         title: 'Error',
-        description: error?.message || 'Failed to send message. Please try again.',
+        description: message,
         variant: 'destructive',
       });
       // Restore on failure
@@ -158,8 +159,9 @@ const Chat = () => {
     try {
       const attachment = await uploadAttachment(conversationId, file);
       setPendingAttachment(attachment);
-    } catch (err: any) {
-      toast({ title: 'Upload failed', description: err?.message || 'Try again.', variant: 'destructive' });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Try again.';
+      toast({ title: 'Upload failed', description: message, variant: 'destructive' });
     } finally {
       setUploading(false);
     }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { requestsApi } from '@/lib/api/requests.api';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -140,37 +140,32 @@ const Matched = () => {
 
   const sendRequest = async (matchUserId: string, matchUserName: string) => {
     if (!user || !journeyData) return;
-    
+
     setSendingRequest(matchUserId);
-    
+
     try {
-      const { error } = await supabase
-        .from('requests')
-        .insert({
-          from_user_id: user.id,
-          from_name: journeyData.name,
-          to_user_id: matchUserId,
-          to_name: matchUserName,
-          train_number: journeyData.trainNumber,
-          travel_date: journeyData.travelDate,
-          boarding_station: journeyData.boardingStation,
-          destination_station: journeyData.destinationStation,
-          status: 'pending'
-        });
-      
-      if (error) throw error;
-      
+      await requestsApi.sendRequest({
+        toUserId: matchUserId,
+        fromName: journeyData.name,
+        toName: matchUserName,
+        trainNumber: journeyData.trainNumber,
+        travelDate: journeyData.travelDate,
+        boardingStation: journeyData.boardingStation,
+        destinationStation: journeyData.destinationStation,
+      });
+
       toast({
-        title: "Request sent",
+        title: 'Request sent',
         description: `Travel request sent to ${matchUserName}`,
       });
-      
+
       await fetchRequests();
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Error sending request';
       toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
+        title: 'Error',
+        description: message,
+        variant: 'destructive',
       });
     } finally {
       setSendingRequest(null);

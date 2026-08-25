@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { trainsApi } from '@/lib/api/trains.api';
+import { TrainDirectoryEntry } from '@/lib/api/types';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { Train, AlertTriangle } from 'lucide-react';
@@ -22,9 +23,9 @@ export const TrainAutocomplete = ({
   value,
   trainName,
   onChange,
-  placeholder = "Enter train number or name",
+  placeholder = 'Enter train number or name',
   required = false,
-  className
+  className,
 }: TrainAutocompleteProps) => {
   const [inputValue, setInputValue] = useState('');
   const [suggestions, setSuggestions] = useState<TrainSuggestion[]>([]);
@@ -38,9 +39,12 @@ export const TrainAutocomplete = ({
   const isVerifiedRef = useRef(true);
 
   // Keep refs in sync with latest state for blur-timeout safety
-  useEffect(() => { inputValueRef.current = inputValue; }, [inputValue]);
-  useEffect(() => { isVerifiedRef.current = isVerified; }, [isVerified]);
-
+  useEffect(() => {
+    inputValueRef.current = inputValue;
+  }, [inputValue]);
+  useEffect(() => {
+    isVerifiedRef.current = isVerified;
+  }, [isVerified]);
 
   // Initialize input value from props
   useEffect(() => {
@@ -69,15 +73,13 @@ export const TrainAutocomplete = ({
 
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('trains')
-        .select('train_number, train_name')
-        .eq('active', true)
-        .or(`train_number.ilike.%${query}%,train_name.ilike.%${query}%`)
-        .limit(15);
-
-      if (error) throw error;
-      setSuggestions(data || []);
+      const data = await trainsApi.searchTrains(query, 15);
+      setSuggestions(
+        data.map((t: TrainDirectoryEntry) => ({
+          train_number: t.train_number || t.trainNumber || '',
+          train_name: t.train_name || t.trainName || '',
+        })),
+      );
     } catch (error) {
       console.error('Error searching trains:', error);
       setSuggestions([]);
@@ -146,13 +148,11 @@ export const TrainAutocomplete = ({
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setHighlightedIndex(prev => 
-          prev < suggestions.length - 1 ? prev + 1 : prev
-        );
+        setHighlightedIndex((prev) => (prev < suggestions.length - 1 ? prev + 1 : prev));
         break;
       case 'ArrowUp':
         e.preventDefault();
-        setHighlightedIndex(prev => prev > 0 ? prev - 1 : -1);
+        setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : -1));
         break;
       case 'Enter':
         e.preventDefault();
@@ -190,7 +190,6 @@ export const TrainAutocomplete = ({
     }, 200);
   };
 
-
   // Close suggestions when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -221,11 +220,11 @@ export const TrainAutocomplete = ({
           onBlur={handleBlur}
           placeholder={placeholder}
           required={required}
-          className={cn("pl-10", className)}
+          className={cn('pl-10', className)}
           autoComplete="off"
         />
       </div>
-      
+
       <p className="text-xs text-muted-foreground mt-1">
         You can type train name or number. Can't find your train? Type it manually.
       </p>
@@ -257,8 +256,8 @@ export const TrainAutocomplete = ({
               }}
               onClick={() => handleSelectSuggestion(suggestion)}
               className={cn(
-                "w-full px-3 py-2 text-left text-sm hover:bg-accent transition-colors flex items-center gap-2",
-                highlightedIndex === index && "bg-accent"
+                'w-full px-3 py-2 text-left text-sm hover:bg-accent transition-colors flex items-center gap-2',
+                highlightedIndex === index && 'bg-accent',
               )}
             >
               <Train className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -278,11 +277,15 @@ export const TrainAutocomplete = ({
       )}
 
       {/* No results */}
-      {showSuggestions && !isLoading && inputValue.length >= 2 && suggestions.length === 0 && !inputValue.includes(' — ') && (
-        <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-lg p-3 text-sm text-muted-foreground">
-          No trains found. You can still continue with this entry.
-        </div>
-      )}
+      {showSuggestions &&
+        !isLoading &&
+        inputValue.length >= 2 &&
+        suggestions.length === 0 &&
+        !inputValue.includes(' — ') && (
+          <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-lg p-3 text-sm text-muted-foreground">
+            No trains found. You can still continue with this entry.
+          </div>
+        )}
     </div>
   );
 };

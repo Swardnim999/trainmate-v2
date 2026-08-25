@@ -1,29 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { conversationsApi } from '@/lib/api/conversations.api';
+import { messagesApi } from '@/lib/api/messages.api';
+import { socketManager } from '@/integrations/sockets/socket';
 import { useAuth } from '@/hooks/useAuth';
 import { messageSchema } from '@/lib/validations';
+import { Message, Conversation } from '@/lib/api/types';
 
-export interface Message {
-  id: string;
-  sender_id: string;
-  sender_name: string | null;
-  text: string;
-  created_at: string;
-  attachment_url?: string | null;
-  attachment_type?: string | null;
-  attachment_name?: string | null;
-  attachment_size?: number | null;
-}
-
-export interface Conversation {
-  id: string;
-  participants: string[];
-  participant_names: any;
-  last_message: string | null;
-  last_message_time: string | null;
-  train_number: string | null;
-  travel_date: string | null;
-}
+export type { Message, Conversation };
 
 export interface AttachmentInput {
   url: string;
@@ -45,38 +28,31 @@ export const useChat = (conversationId?: string, otherUserId?: string) => {
     if (!conversationId || !user) return;
 
     const fetchMessages = async () => {
-      const { data, error } = await supabase
-        .from('messages')
-        .select('*')
-        .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true });
-
-      if (error) {
+      try {
+        const data = await messagesApi.getMessages(conversationId);
+        setMessages(data || []);
+      } catch (error) {
         console.error('Error fetching messages:', error);
-        return;
       }
-      setMessages((data || []) as Message[]);
     };
 
     fetchMessages();
 
-    const channel = supabase
-      .channel(`messages-${conversationId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
-        (payload) => {
-          setMessages((prev) => {
-            const next = payload.new as Message;
-            if (prev.some((m) => m.id === next.id)) return prev;
-            return [...prev, next];
-          });
-        }
-      )
-      .subscribe();
+    socketManager.joinConversation(conversationId);
+
+    const unsubscribe = socketManager.onMessage((newMessage: Message) => {
+      const msgConvId = newMessage.conversation_id || newMessage.conversationId;
+      if (msgConvId === conversationId) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === newMessage.id)) return prev;
+          return [...prev, newMessage];
+        });
+      }
+    });
 
     return () => {
-      supabase.removeChannel(channel);
+      unsubscribe();
+      socketManager.leaveConversation(conversationId);
     };
   }, [conversationId, user]);
 
@@ -90,112 +66,71 @@ export const useChat = (conversationId?: string, otherUserId?: string) => {
     let cancelled = false;
 
     const fetchLastRead = async () => {
-      const { data } = await supabase
-        .from('last_read')
-        .select('timestamp')
-        .eq('conversation_id', conversationId)
-        .eq('user_id', otherUserId)
-        .maybeSingle();
-      if (!cancelled) setOtherUserLastRead(data?.timestamp ?? null);
+      try {
+        const timestamp = await messagesApi.getLastRead(conversationId, otherUserId);
+        if (!cancelled) setOtherUserLastRead(timestamp);
+      } catch {
+        if (!cancelled) setOtherUserLastRead(null);
+      }
     };
 
     fetchLastRead();
 
-    const channel = supabase
-      .channel(`last-read-${conversationId}-${otherUserId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'last_read', filter: `conversation_id=eq.${conversationId}` },
-        (payload) => {
-          const row: any = payload.new || payload.old;
-          if (row?.user_id === otherUserId && row?.timestamp) {
-            setOtherUserLastRead(row.timestamp);
-          }
-        }
-      )
-      .subscribe();
+    const unsubscribe = socketManager.onLastRead((payload) => {
+      if (payload.conversationId === conversationId && payload.userId === otherUserId) {
+        setOtherUserLastRead(payload.timestamp);
+      }
+    });
 
     return () => {
       cancelled = true;
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, [conversationId, otherUserId]);
+
+  const calculateUnreadCounts = useCallback(async (convs: Conversation[]) => {
+    const counts: { [key: string]: number } = {};
+    for (const conv of convs) {
+      try {
+        const count = await messagesApi.getUnreadCount(conv.id);
+        counts[conv.id] = count;
+      } catch {
+        counts[conv.id] = 0;
+      }
+    }
+    setUnreadCount(counts);
+  }, []);
+
+  const fetchConversations = useCallback(async () => {
+    if (!user) return;
+    try {
+      const data = await conversationsApi.getConversations();
+      setConversations(data || []);
+      await calculateUnreadCounts(data || []);
+    } catch (error) {
+      console.error('Error fetching conversations:', error);
+    }
+  }, [user, calculateUnreadCounts]);
 
   // All conversations for current user
   useEffect(() => {
     if (!user) return;
 
-    const fetchConversations = async () => {
-      const { data, error } = await supabase
-        .from('conversations')
-        .select('*')
-        .contains('participants', [user.id])
-        .order('last_message_time', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching conversations:', error);
-        return;
-      }
-      setConversations(data || []);
-      await calculateUnreadCounts(data || []);
-    };
-
     fetchConversations();
 
-    const channel = supabase
-      .channel(`conversations-updates-${user.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, () => fetchConversations())
-      .subscribe();
+    const unsubscribe = socketManager.onConversationUpdated(() => {
+      fetchConversations();
+    });
 
     return () => {
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
-  }, [user]);
-
-  const calculateUnreadCounts = async (convs: Conversation[]) => {
-    if (!user) return;
-    const counts: { [key: string]: number } = {};
-
-    for (const conv of convs) {
-      try {
-        const { data: lastReadData } = await supabase
-          .from('last_read')
-          .select('timestamp')
-          .eq('user_id', user.id)
-          .eq('conversation_id', conv.id)
-          .maybeSingle();
-
-        const lastReadTime = lastReadData?.timestamp;
-
-        if (!lastReadTime && conv.last_message_time) {
-          const { count } = await supabase
-            .from('messages')
-            .select('*', { count: 'exact', head: true })
-            .eq('conversation_id', conv.id)
-            .neq('sender_id', user.id);
-          counts[conv.id] = count || 0;
-        } else if (lastReadTime && conv.last_message_time) {
-          const { count } = await supabase
-            .from('messages')
-            .select('*', { count: 'exact', head: true })
-            .eq('conversation_id', conv.id)
-            .gt('created_at', lastReadTime)
-            .neq('sender_id', user.id);
-          counts[conv.id] = count || 0;
-        } else {
-          counts[conv.id] = 0;
-        }
-      } catch (e) {
-        counts[conv.id] = 0;
-      }
-    }
-    setUnreadCount(counts);
-  };
+  }, [user, fetchConversations]);
 
   const sendMessage = async (
-    conversationId: string,
+    targetConvId: string,
     text: string,
-    attachment?: AttachmentInput
+    attachment?: AttachmentInput,
   ) => {
     if (!user) return;
 
@@ -211,39 +146,14 @@ export const useChat = (conversationId?: string, otherUserId?: string) => {
 
     setLoading(true);
     try {
-      const { data: senderProfile } = await supabase
-        .from('profiles')
-        .select('name')
-        .eq('id', user.id)
-        .maybeSingle();
-      const displayName = senderProfile?.name || 'User';
-
-      const { error: messageError } = await supabase.from('messages').insert({
-        conversation_id: conversationId,
-        sender_id: user.id,
-        sender_name: displayName,
+      await messagesApi.sendMessage(targetConvId, {
         text: validatedText,
-        attachment_url: attachment?.url ?? null,
-        attachment_type: attachment?.type ?? null,
-        attachment_name: attachment?.name ?? null,
-        attachment_size: attachment?.size ?? null,
-      } as any);
-
-      if (messageError) throw messageError;
-
-      const previewBase = attachment
-        ? attachment.type?.startsWith('image/')
-          ? '📷 Photo'
-          : `📎 ${attachment.name}`
-        : validatedText;
-
-      await supabase
-        .from('conversations')
-        .update({
-          last_message: (validatedText || previewBase).substring(0, 255),
-          last_message_time: new Date().toISOString(),
-        })
-        .eq('id', conversationId);
+        attachmentUrl: attachment?.url ?? null,
+        attachmentType: attachment?.type ?? null,
+        attachmentName: attachment?.name ?? null,
+        attachmentSize: attachment?.size ?? null,
+      });
+      fetchConversations();
     } catch (error) {
       console.error('Error sending message:', error);
       throw error;
@@ -253,42 +163,18 @@ export const useChat = (conversationId?: string, otherUserId?: string) => {
   };
 
   const uploadAttachment = useCallback(
-    async (conversationId: string, file: File): Promise<AttachmentInput> => {
+    async (_targetConvId: string, file: File): Promise<AttachmentInput> => {
       if (!user) throw new Error('Not authenticated');
-      const ext = file.name.split('.').pop() || 'bin';
-      const path = `${conversationId}/${crypto.randomUUID()}.${ext}`;
-
-      const { error } = await supabase.storage
-        .from('chat-attachments')
-        .upload(path, file, { contentType: file.type, upsert: false });
-      if (error) throw error;
-
-      const { data: signed, error: signErr } = await supabase.storage
-        .from('chat-attachments')
-        .createSignedUrl(path, 60 * 60 * 24 * 365);
-      if (signErr || !signed?.signedUrl) throw signErr || new Error('Failed to sign URL');
-
-      return {
-        url: signed.signedUrl,
-        type: file.type || 'application/octet-stream',
-        name: file.name,
-        size: file.size,
-      };
+      return messagesApi.uploadAttachment(file);
     },
-    [user]
+    [user],
   );
 
-  const markAsRead = async (conversationId: string) => {
+  const markAsRead = async (targetConvId: string) => {
     if (!user) return;
     try {
-      const { error } = await supabase
-        .from('last_read')
-        .upsert(
-          { user_id: user.id, conversation_id: conversationId, timestamp: new Date().toISOString() },
-          { onConflict: 'user_id,conversation_id' }
-        );
-      if (error) throw error;
-      setUnreadCount((prev) => ({ ...prev, [conversationId]: 0 }));
+      await messagesApi.markAsRead(targetConvId);
+      setUnreadCount((prev) => ({ ...prev, [targetConvId]: 0 }));
     } catch (error) {
       console.error('Error marking conversation as read:', error);
     }
@@ -298,24 +184,17 @@ export const useChat = (conversationId?: string, otherUserId?: string) => {
     participantIds: string[],
     participantNames: { [key: string]: string },
     trainNumber?: string,
-    travelDate?: string
+    travelDate?: string,
   ) => {
     if (!user) return null;
     try {
-      const { data, error } = await supabase
-        .from('conversations')
-        .insert({
-          participants: participantIds,
-          participant_names: participantNames,
-          train_number: trainNumber || null,
-          travel_date: travelDate || null,
-          last_message: '',
-          last_message_time: new Date().toISOString(),
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      return data.id;
+      const conv = await conversationsApi.createConversation({
+        participants: participantIds,
+        participantNames,
+        trainNumber: trainNumber || null,
+        travelDate: travelDate || null,
+      });
+      return conv.id;
     } catch (error) {
       console.error('Error creating conversation:', error);
       throw error;
@@ -324,15 +203,11 @@ export const useChat = (conversationId?: string, otherUserId?: string) => {
 
   const getTotalUnreadCount = () => Object.values(unreadCount).reduce((t, c) => t + c, 0);
 
-  const deleteChat = async (conversationId: string) => {
+  const deleteChat = async (targetConvId: string) => {
     if (!user) return;
     try {
-      const { error } = await supabase.rpc('soft_delete_conversation' as any, {
-        conv_id: conversationId,
-        user_id_to_add: user.id,
-      });
-      if (error) throw error;
-      setConversations((prev) => prev.filter((c) => c.id !== conversationId));
+      await conversationsApi.softDeleteConversation(targetConvId);
+      setConversations((prev) => prev.filter((c) => c.id !== targetConvId));
     } catch (error) {
       console.error('Error deleting chat:', error);
       throw error;

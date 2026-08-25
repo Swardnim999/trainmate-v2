@@ -12,7 +12,8 @@ import { SkeletonCard } from '@/components/SkeletonCard';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import dashboardBg from '@/assets/dashboard-bg.png';
-import { supabase } from '@/integrations/supabase/client';
+import { profilesApi } from '@/lib/api/profiles.api';
+import { CompanionRequest } from '@/lib/api/types';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,7 +64,7 @@ const Requests = () => {
     }
   }, [user, cleanupExpiredRequests]);
 
-  const handleAccept = async (request: any) => {
+  const handleAccept = async (request: CompanionRequest) => {
     if (!user) return;
     
     setProcessingId(request.id);
@@ -71,12 +72,7 @@ const Requests = () => {
     const success = await acceptRequest(request.id);
     if (success) {
       try {
-        const { data: meProfile } = await supabase
-          .from('profiles')
-          .select('name')
-          .eq('id', user.id)
-          .maybeSingle();
-        const myDisplayName = meProfile?.name || 'You';
+        const myDisplayName = await profilesApi.getUserDisplayName(user.id);
 
         const conversationId = await createConversation(
           [user.id, request.from_user_id],
