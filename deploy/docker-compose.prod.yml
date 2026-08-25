@@ -1,0 +1,74 @@
+name: trainmate-production-sim
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-trainmate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-trainmate_prod_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-trainmate}
+    ports:
+      - '5432:5432'
+    volumes:
+      - prod-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-trainmate} -d ${POSTGRES_DB:-trainmate}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    volumes:
+      - prod-redis-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli ping | grep PONG']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      LOG_LEVEL: info
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://trainmate.in,https://app.trainmate.in}
+      API_PUBLIC_ORIGIN: ${API_PUBLIC_ORIGIN:-https://api.trainmate.in}
+      AUTH_ALLOWED_REDIRECT_ORIGINS: ${AUTH_ALLOWED_REDIRECT_ORIGINS:-https://trainmate.in,https://app.trainmate.in}
+      TRUST_PROXY_HOPS: 1
+      DATABASE_URL: postgresql://${POSTGRES_USER:-trainmate}:${POSTGRES_PASSWORD:-trainmate_prod_secret}@postgres:5432/${POSTGRES_DB:-trainmate}
+      DIRECT_URL: postgresql://${POSTGRES_USER:-trainmate}:${POSTGRES_PASSWORD:-trainmate_prod_secret}@postgres:5432/${POSTGRES_DB:-trainmate}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-production-jwt-secret-min-32-chars-0123456789abcdef}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-resend}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-TrainMate <noreply@trainmate.in>}
+      S3_REGION: ap-south-1
+      S3_BUCKET_AVATARS: trainmate-prod-avatars
+      S3_BUCKET_ATTACHMENTS: trainmate-prod-chat-attachments
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  prod-postgres-data:
+  prod-redis-data:

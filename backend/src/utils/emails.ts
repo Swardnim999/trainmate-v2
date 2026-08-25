@@ -1,4 +1,5 @@
 import { logger } from './logger.js';
+import { ResendEmailSender } from './resend-email.js';
 
 /**
  * Transactional-email seam (Auth-Design §6.5, §7.2, §14.2).
@@ -80,4 +81,40 @@ export class ConsoleEmailSender implements EmailSender {
       console.log(`[dev-email] password reset for ${input.to}:\n${input.resetUrl}\n`);
     }
   }
+}
+
+export { ResendEmailSender, type ResendEmailSenderOptions } from './resend-email.js';
+
+/**
+ * Factory creating the configured EmailSender for runtime (Milestone 14).
+ * Returns ResendEmailSender if EMAIL_PROVIDER=resend and RESEND_API_KEY is present,
+ * otherwise falls back safely to ConsoleEmailSender.
+ */
+export function createDefaultEmailSender(
+  envConfig: {
+    EMAIL_PROVIDER?: 'console' | 'resend';
+    RESEND_API_KEY?: string;
+    EMAIL_FROM?: string;
+    API_PUBLIC_ORIGIN?: string;
+    NODE_ENV?: string;
+  } = {},
+): EmailSender {
+  const provider = envConfig.EMAIL_PROVIDER ?? 'console';
+  const apiKey = envConfig.RESEND_API_KEY;
+  const origin = envConfig.API_PUBLIC_ORIGIN ?? 'http://localhost:3000';
+  const from = envConfig.EMAIL_FROM ?? 'TrainMate <noreply@trainmate.in>';
+  const isProd = (envConfig.NODE_ENV ?? 'development') === 'production';
+
+  if (provider === 'resend' && apiKey && apiKey.trim().length > 0) {
+    return new ResendEmailSender({
+      apiKey,
+      apiPublicOrigin: origin,
+      from,
+    });
+  }
+
+  return new ConsoleEmailSender({
+    apiPublicOrigin: origin,
+    printLinks: !isProd,
+  });
 }

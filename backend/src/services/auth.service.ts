@@ -13,7 +13,7 @@ import { EmailVerificationRepository } from '../repositories/email-verifications
 import { RefreshTokenRepository } from '../repositories/refresh-tokens.repo.js';
 import { UserRepository } from '../repositories/users.repo.js';
 import { AppError } from '../utils/errors.js';
-import { ConsoleEmailSender, type EmailSender } from '../utils/emails.js';
+import { createDefaultEmailSender, type EmailSender } from '../utils/emails.js';
 import { JwtService, type JwtSigner } from '../utils/jwt.js';
 import { BcryptPasswordHasher, type PasswordHasher } from '../utils/passwords.js';
 import { tokenOps, type TokenOps } from '../utils/tokens.js';
@@ -141,12 +141,7 @@ export class AuthService {
     this.passwords = deps.passwords ?? new BcryptPasswordHasher();
     this.tokens = deps.tokens ?? tokenOps;
     this.jwt = deps.jwt ?? new JwtService(env.JWT_SECRET);
-    this.emails =
-      deps.emails ??
-      new ConsoleEmailSender({
-        apiPublicOrigin: env.API_PUBLIC_ORIGIN,
-        printLinks: env.NODE_ENV !== 'production',
-      });
+    this.emails = deps.emails ?? createDefaultEmailSender(env);
     this.lockout = deps.lockout ?? new InMemoryLoginLockout();
     this.accessTokenTtlSeconds = deps.accessTokenTtlSeconds ?? ACCESS_TOKEN_TTL_SECONDS;
     const origins = deps.redirectOrigins ?? defaultRedirectOrigins();

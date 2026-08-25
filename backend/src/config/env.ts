@@ -30,6 +30,19 @@ const envSchema = z.object({
   AUTH_ALLOWED_REDIRECT_ORIGINS: z.string().default(''),
   // Public origin of THIS api, used to build email confirmation links.
   API_PUBLIC_ORIGIN: z.string().default('http://localhost:3000'),
+  // Transactional Email (M14). 'console' for dev/test, 'resend' for production.
+  EMAIL_PROVIDER: z.enum(['console', 'resend']).default('console'),
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().default('TrainMate <noreply@trainmate.in>'),
+  // Direct database URL for Prisma migrations during pre-deployment gates.
+  DIRECT_URL: z.string().optional(),
+  // Redis URL for multi-instance Socket.IO adapter and distributed rate limiting.
+  REDIS_URL: z.string().optional(),
+  // S3 / Object storage configuration (AWS S3 ap-south-1 target).
+  S3_ENDPOINT: z.string().optional(),
+  S3_REGION: z.string().default('ap-south-1'),
+  S3_BUCKET_AVATARS: z.string().default('trainmate-prod-avatars'),
+  S3_BUCKET_ATTACHMENTS: z.string().default('trainmate-prod-chat-attachments'),
   // Require a postgres/postgresql scheme. Deliberately NOT z.string().url():
   // the WHATWG URL parser rejects valid libpq forms (e.g. multi-host
   // `postgresql://h1:5432,h2:5432/db`) and happily accepts http:// or mysql://.

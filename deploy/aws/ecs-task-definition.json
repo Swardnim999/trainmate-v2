@@ -1,0 +1,77 @@
+{
+  "family": "trainmate-api-production",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/TrainMateEcsExecutionRole",
+  "taskRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/TrainMateEcsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "trainmate-api",
+      "image": "<AWS_ACCOUNT_ID>.dkr.ecr.ap-south-1.amazonaws.com/trainmate-api:latest",
+      "essential": true,
+      "user": "node",
+      "portMappings": [
+        {
+          "containerPort": 3000,
+          "hostPort": 3000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "HOST", "value": "0.0.0.0" },
+        { "name": "PORT", "value": "3000" },
+        { "name": "LOG_LEVEL", "value": "info" },
+        { "name": "TRUST_PROXY_HOPS", "value": "1" },
+        { "name": "CORS_ORIGIN", "value": "https://trainmate.in,https://app.trainmate.in" },
+        { "name": "API_PUBLIC_ORIGIN", "value": "https://api.trainmate.in" },
+        { "name": "AUTH_ALLOWED_REDIRECT_ORIGINS", "value": "https://trainmate.in,https://app.trainmate.in" },
+        { "name": "EMAIL_PROVIDER", "value": "resend" },
+        { "name": "EMAIL_FROM", "value": "TrainMate <noreply@trainmate.in>" },
+        { "name": "S3_REGION", "value": "ap-south-1" },
+        { "name": "S3_BUCKET_AVATARS", "value": "trainmate-prod-avatars" },
+        { "name": "S3_BUCKET_ATTACHMENTS", "value": "trainmate-prod-chat-attachments" }
+      ],
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:<AWS_ACCOUNT_ID>:secret:trainmate/prod/db-url"
+        },
+        {
+          "name": "DIRECT_URL",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:<AWS_ACCOUNT_ID>:secret:trainmate/prod/direct-db-url"
+        },
+        {
+          "name": "JWT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:<AWS_ACCOUNT_ID>:secret:trainmate/prod/jwt-secret"
+        },
+        {
+          "name": "REDIS_URL",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:<AWS_ACCOUNT_ID>:secret:trainmate/prod/redis-url"
+        },
+        {
+          "name": "RESEND_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:<AWS_ACCOUNT_ID>:secret:trainmate/prod/resend-api-key"
+        }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"],
+        "interval": 15,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 20
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/trainmate-api-production",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "stopTimeout": 30
+    }
+  ]
+}

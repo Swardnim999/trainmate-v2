@@ -1,0 +1,81 @@
+{
+  "LoadBalancer": {
+    "Scheme": "internet-facing",
+    "Type": "application",
+    "IpAddressType": "ipv4",
+    "SecurityGroups": ["sg-trainmate-alb-production"],
+    "Subnets": ["subnet-public-az1a", "subnet-public-az1b"]
+  },
+  "Listeners": [
+    {
+      "Port": 80,
+      "Protocol": "HTTP",
+      "DefaultActions": [
+        {
+          "Type": "redirect",
+          "RedirectConfig": {
+            "Protocol": "HTTPS",
+            "Port": "443",
+            "Host": "#{host}",
+            "Path": "/#{path}",
+            "Query": "#{query}",
+            "StatusCode": "HTTP_301"
+          }
+        }
+      ]
+    },
+    {
+      "Port": 443,
+      "Protocol": "HTTPS",
+      "SslPolicy": "ELBSecurityPolicy-TLS13-1-2-2021-06",
+      "Certificates": [
+        {
+          "CertificateArn": "arn:aws:acm:ap-south-1:<AWS_ACCOUNT_ID>:certificate/<CERT_UUID>"
+        }
+      ],
+      "DefaultActions": [
+        {
+          "Type": "forward",
+          "TargetGroupArn": "arn:aws:elasticloadbalancing:ap-south-1:<AWS_ACCOUNT_ID>:targetgroup/trainmate-api-tg/<TG_UUID>"
+        }
+      ]
+    }
+  ],
+  "TargetGroup": {
+    "Name": "trainmate-api-tg",
+    "Protocol": "HTTP",
+    "Port": 3000,
+    "TargetType": "ip",
+    "VpcId": "vpc-trainmate-production",
+    "HealthCheck": {
+      "Protocol": "HTTP",
+      "Path": "/health",
+      "Port": "traffic-port",
+      "IntervalSeconds": 15,
+      "TimeoutSeconds": 5,
+      "HealthyThresholdCount": 2,
+      "UnhealthyThresholdCount": 3,
+      "Matcher": {
+        "HttpCode": "200"
+      }
+    },
+    "Attributes": [
+      {
+        "Key": "stickiness.enabled",
+        "Value": "true"
+      },
+      {
+        "Key": "stickiness.type",
+        "Value": "lb_cookie"
+      },
+      {
+        "Key": "stickiness.lb_cookie.duration_seconds",
+        "Value": "86400"
+      },
+      {
+        "Key": "deregistration_delay.timeout_seconds",
+        "Value": "30"
+      }
+    ]
+  }
+}

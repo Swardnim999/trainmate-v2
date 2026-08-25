@@ -4,6 +4,14 @@ import { createApp } from '../../src/app.js';
 import type { Express } from 'express';
 import { JwtService } from '../../src/utils/jwt.js';
 import { env } from '../../src/config/env.js';
+import type { AuthService } from '../../src/services/auth.service.js';
+import type { ProfileService } from '../../src/services/profile.service.js';
+import type { JourneyService } from '../../src/services/journey.service.js';
+import type { TrainService } from '../../src/services/train.service.js';
+import type { RequestService } from '../../src/services/request.service.js';
+import type { ConversationService } from '../../src/services/conversation.service.js';
+import type { MessageService } from '../../src/services/message.service.js';
+import type { ModerationService } from '../../src/services/moderation.service.js';
 
 const USER1 = '00000000-0000-4000-8000-000000000001';
 const USER2 = '00000000-0000-4000-8000-000000000002';
@@ -148,9 +156,7 @@ describe('Frontend Adapter 60 Call Sites Contract Suite', () => {
     };
 
     fakeTrainService = {
-      search: vi.fn().mockResolvedValue([
-        { trainNumber: '12951', trainName: 'Mumbai Rajdhani' },
-      ]),
+      search: vi.fn().mockResolvedValue([{ trainNumber: '12951', trainName: 'Mumbai Rajdhani' }]),
       logUnverifiedTrain: vi.fn().mockResolvedValue({
         id: 'uv-1',
         trainNumber: '99999',
@@ -307,9 +313,9 @@ describe('Frontend Adapter 60 Call Sites Contract Suite', () => {
     };
 
     fakeModerationService = {
-      getBlockedUsers: vi.fn().mockResolvedValue([
-        { blocked_id: USER2, created_at: new Date().toISOString() },
-      ]),
+      getBlockedUsers: vi
+        .fn()
+        .mockResolvedValue([{ blocked_id: USER2, created_at: new Date().toISOString() }]),
       blockUser: vi.fn().mockResolvedValue({
         blocker_id: USER1,
         blocked_id: USER2,
@@ -326,14 +332,14 @@ describe('Frontend Adapter 60 Call Sites Contract Suite', () => {
     };
 
     app = createApp({
-      auth: fakeAuthService as any,
-      profileService: fakeProfileService as any,
-      journeyService: fakeJourneyService as any,
-      trainService: fakeTrainService as any,
-      requestService: fakeRequestService as any,
-      conversationService: fakeConversationService as any,
-      messageService: fakeMessageService as any,
-      moderation: fakeModerationService as any,
+      auth: fakeAuthService as unknown as AuthService,
+      profileService: fakeProfileService as unknown as ProfileService,
+      journeyService: fakeJourneyService as unknown as JourneyService,
+      trainService: fakeTrainService as unknown as TrainService,
+      requestService: fakeRequestService as unknown as RequestService,
+      conversationService: fakeConversationService as unknown as ConversationService,
+      messageService: fakeMessageService as unknown as MessageService,
+      moderation: fakeModerationService as unknown as ModerationService,
     });
   });
 
@@ -364,9 +370,7 @@ describe('Frontend Adapter 60 Call Sites Contract Suite', () => {
     });
 
     it('#4: POST /auth/refresh returns rotated tokens', async () => {
-      const res = await request(app)
-        .post('/auth/refresh')
-        .send({ refresh_token: 'refresh-123' });
+      const res = await request(app).post('/auth/refresh').send({ refresh_token: 'refresh-123' });
       expect(res.status).toBe(200);
       expect(res.body.accessToken).toBe('access-456');
     });
@@ -386,9 +390,7 @@ describe('Frontend Adapter 60 Call Sites Contract Suite', () => {
     });
 
     it('#7: GET /auth/session returns current session user', async () => {
-      const res = await request(app)
-        .get('/auth/session')
-        .set('Authorization', `Bearer ${token}`);
+      const res = await request(app).get('/auth/session').set('Authorization', `Bearer ${token}`);
       expect(res.status).toBe(200);
       expect(res.body.user.id).toBe(USER1);
     });
@@ -396,9 +398,7 @@ describe('Frontend Adapter 60 Call Sites Contract Suite', () => {
 
   describe('Profiles Contract Calls (#8 to #11, #56, #57, #58)', () => {
     it('#8, #9: GET /profiles/me retrieves own profile', async () => {
-      const res = await request(app)
-        .get('/profiles/me')
-        .set('Authorization', `Bearer ${token}`);
+      const res = await request(app).get('/profiles/me').set('Authorization', `Bearer ${token}`);
       expect(res.status).toBe(200);
       expect(res.body.email).toBe('u1@example.com');
       expect(fakeProfileService.getOwnProfile).toHaveBeenCalled();
@@ -433,9 +433,7 @@ describe('Frontend Adapter 60 Call Sites Contract Suite', () => {
 
   describe('Journeys & Trains Contract Calls (#48 to #53, #60)', () => {
     it('#49: GET /journeys/me lists active and past journeys', async () => {
-      const res = await request(app)
-        .get('/journeys/me')
-        .set('Authorization', `Bearer ${token}`);
+      const res = await request(app).get('/journeys/me').set('Authorization', `Bearer ${token}`);
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
       expect(res.body[0].train_number).toBe('12951');
@@ -501,9 +499,7 @@ describe('Frontend Adapter 60 Call Sites Contract Suite', () => {
 
   describe('Companion Requests Contract Calls (#12 to #17, #41, #48, #54, #55)', () => {
     it('#12, #55: GET /requests/me returns user requests list', async () => {
-      const res = await request(app)
-        .get('/requests/me')
-        .set('Authorization', `Bearer ${token}`);
+      const res = await request(app).get('/requests/me').set('Authorization', `Bearer ${token}`);
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
     });
@@ -570,9 +566,7 @@ describe('Frontend Adapter 60 Call Sites Contract Suite', () => {
 
   describe('Conversations, Messages & Moderation Contract Calls (#18 to #37, #45 to #47, #59)', () => {
     it('#24: GET /conversations returns user conversations', async () => {
-      const res = await request(app)
-        .get('/conversations')
-        .set('Authorization', `Bearer ${token}`);
+      const res = await request(app).get('/conversations').set('Authorization', `Bearer ${token}`);
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
     });
@@ -643,9 +637,7 @@ describe('Frontend Adapter 60 Call Sites Contract Suite', () => {
     });
 
     it('#45: GET /blocked-users lists blocked users', async () => {
-      const res = await request(app)
-        .get('/blocked-users')
-        .set('Authorization', `Bearer ${token}`);
+      const res = await request(app).get('/blocked-users').set('Authorization', `Bearer ${token}`);
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
     });
