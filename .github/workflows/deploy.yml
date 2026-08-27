@@ -127,7 +127,7 @@ jobs:
         working-directory: backend
         run: npm ci
 
-      - name: Pre-Deploy Gate: Apply Prisma Migrations
+      - name: "Pre-Deploy Gate: Apply Prisma Migrations"
         working-directory: backend
         env:
           DATABASE_URL: ${{ secrets.PROD_DIRECT_URL }}

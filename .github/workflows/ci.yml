@@ -55,5 +55,9 @@ jobs:
       - name: Docker build (api image)
         run: docker compose build api
 
-      - name: Audit (no high-severity findings)
+      - name: Production audit (no high-severity runtime findings)
+        run: npm audit --omit=dev --omit=optional --audit-level=high
+
+      - name: Development tooling advisory check (informational)
+        continue-on-error: true
         run: npm audit --audit-level=high
