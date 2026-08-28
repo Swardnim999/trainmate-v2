@@ -10,8 +10,10 @@ import { logger } from './utils/logger.js';
 import { initSocketServer } from './sockets/index.js';
 import { JwtService } from './utils/jwt.js';
 import { ConversationRepository } from './repositories/conversations.repo.js';
-import { MessageService } from './services/message.service.js';
+import { RequestService } from './services/request.service.js';
 import { ConversationService } from './services/conversation.service.js';
+import { MessageService } from './services/message.service.js';
+import { RequestCleanupJob } from './jobs/request-cleanup.job.js';
 
 const jwtService = new JwtService(env.JWT_SECRET);
 const conversationsRepo = new ConversationRepository();
@@ -25,10 +27,15 @@ const { io, broadcaster } = initSocketServer({
   corsOrigin: env.CORS_ORIGIN.split(',').map((o) => o.trim()),
 });
 
+const requestService = new RequestService({ broadcaster });
 const conversationService = new ConversationService({ broadcaster });
 const messageService = new MessageService({ broadcaster });
 
+const requestCleanupJob = new RequestCleanupJob(requestService);
+requestCleanupJob.start();
+
 const app = createApp({
+  requestService,
   conversationService,
   messageService,
 });
@@ -45,6 +52,7 @@ function shutdown(signal: NodeJS.Signals): void {
   shuttingDown = true;
 
   logger.info({ signal }, 'shutdown initiated');
+  requestCleanupJob.stop();
 
   const forceExit = setTimeout(() => {
     logger.warn(`shutdown timeout exceeded (${SHUTDOWN_TIMEOUT_MS}ms) — force closing`);

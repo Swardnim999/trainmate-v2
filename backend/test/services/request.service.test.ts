@@ -4,6 +4,7 @@ import { RequestService } from '../../src/services/request.service.js';
 import { RequestRepository } from '../../src/repositories/requests.repo.js';
 import { AccessService } from '../../src/services/access.service.js';
 import { AppError, NotFoundError } from '../../src/utils/errors.js';
+import type { RealtimeBroadcaster } from '../../src/sockets/broadcaster.js';
 
 describe('RequestService', () => {
   let mockRequestsRepo: {
@@ -280,6 +281,103 @@ describe('RequestService', () => {
         new Date('2026-09-13'),
       );
       expect(count).toBe(2);
+    });
+
+    it('sweeps across all users when callerId is system-cron', async () => {
+      mockRequestsRepo.deleteExpiredPending.mockResolvedValue(8);
+
+      const count = await service.cleanupExpiredRequests('system-cron');
+
+      expect(mockRequestsRepo.deleteExpiredPending).toHaveBeenCalledWith(
+        undefined,
+        expect.any(Date),
+      );
+      expect(count).toBe(8);
+    });
+  });
+
+  describe('RealtimeBroadcaster integration', () => {
+    let mockBroadcaster: {
+      broadcastRequestNew: ReturnType<typeof vi.fn>;
+      broadcastRequestUpdated: ReturnType<typeof vi.fn>;
+      broadcastCompanionsUpdated: ReturnType<typeof vi.fn>;
+    };
+    let serviceWithBroadcaster: RequestService;
+
+    beforeEach(() => {
+      mockBroadcaster = {
+        broadcastRequestNew: vi.fn(),
+        broadcastRequestUpdated: vi.fn(),
+        broadcastCompanionsUpdated: vi.fn(),
+      };
+      serviceWithBroadcaster = new RequestService({
+        requests: mockRequestsRepo as unknown as RequestRepository,
+        access: mockAccess as unknown as AccessService,
+        broadcaster: mockBroadcaster as unknown as RealtimeBroadcaster,
+      });
+    });
+
+    it('broadcasts request:new to recipient user room on sendRequest', async () => {
+      mockAccess.isBlocked.mockResolvedValue(false);
+      mockAccess.usersShareJourney.mockResolvedValue(true);
+      mockRequestsRepo.findActivePendingBetween.mockResolvedValue(null);
+      mockRequestsRepo.create.mockResolvedValue(mockRequest);
+
+      await serviceWithBroadcaster.sendRequest(senderId, {
+        toUserId: recipientId,
+        trainNumber: '12951',
+        travelDate: '2026-09-15',
+      });
+
+      expect(mockBroadcaster.broadcastRequestNew).toHaveBeenCalledWith(
+        recipientId,
+        expect.objectContaining({
+          id: mockRequest.id,
+          toUserId: recipientId,
+        }),
+      );
+    });
+
+    it('broadcasts request:updated and companions:updated on acceptRequest', async () => {
+      const pendingRequest: Request = { ...mockRequest, status: 'pending' };
+      const acceptedRequest: Request = { ...mockRequest, status: 'accepted' };
+
+      mockRequestsRepo.findById.mockResolvedValue(pendingRequest);
+      mockAccess.isBlocked.mockResolvedValue(false);
+      mockRequestsRepo.updateStatus.mockResolvedValue(acceptedRequest);
+
+      await serviceWithBroadcaster.updateStatus(recipientId, mockRequest.id, 'accepted');
+
+      expect(mockBroadcaster.broadcastRequestUpdated).toHaveBeenCalledWith(
+        [senderId, recipientId],
+        expect.objectContaining({
+          id: mockRequest.id,
+          status: 'accepted',
+        }),
+      );
+      expect(mockBroadcaster.broadcastCompanionsUpdated).toHaveBeenCalledWith(
+        [senderId, recipientId],
+        expect.objectContaining({
+          requestId: mockRequest.id,
+          status: 'accepted',
+        }),
+      );
+    });
+
+    it('broadcasts request:updated with cancelled status on cancelRequest', async () => {
+      const pendingRequest: Request = { ...mockRequest, status: 'pending' };
+      mockRequestsRepo.findById.mockResolvedValue(pendingRequest);
+      mockRequestsRepo.deletePendingByIdAndOwner.mockResolvedValue(true);
+
+      await serviceWithBroadcaster.cancelRequest(senderId, mockRequest.id);
+
+      expect(mockBroadcaster.broadcastRequestUpdated).toHaveBeenCalledWith(
+        [senderId, recipientId],
+        expect.objectContaining({
+          id: mockRequest.id,
+          status: 'cancelled',
+        }),
+      );
     });
   });
 });

@@ -90,14 +90,20 @@ export const useChat = (conversationId?: string, otherUserId?: string) => {
 
   const calculateUnreadCounts = useCallback(async (convs: Conversation[]) => {
     const counts: { [key: string]: number } = {};
-    for (const conv of convs) {
-      try {
-        const count = await messagesApi.getUnreadCount(conv.id);
-        counts[conv.id] = count;
-      } catch {
-        counts[conv.id] = 0;
-      }
+    if (convs.length === 0) {
+      setUnreadCount(counts);
+      return;
     }
+    await Promise.all(
+      convs.map(async (conv) => {
+        try {
+          const count = await messagesApi.getUnreadCount(conv.id);
+          counts[conv.id] = count;
+        } catch {
+          counts[conv.id] = 0;
+        }
+      }),
+    );
     setUnreadCount(counts);
   }, []);
 

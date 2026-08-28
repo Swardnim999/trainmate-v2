@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { requestsApi } from '@/lib/api/requests.api';
 import { CompanionRequest } from '@/lib/api/types';
 import { useAuth } from '@/hooks/useAuth';
+import { socketManager } from '@/integrations/sockets';
 
 export interface AcceptedCompanion {
   otherUserId: string;
@@ -38,6 +39,14 @@ export const useAcceptedCompanions = () => {
     };
 
     fetchAccepted();
+
+    const unsub = socketManager.onCompanionsUpdated(() => {
+      fetchAccepted();
+    });
+
+    return () => {
+      unsub();
+    };
   }, [user]);
 
   // Merge into a single companions array keyed by otherUserId

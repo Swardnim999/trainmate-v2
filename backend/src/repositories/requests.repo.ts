@@ -242,18 +242,24 @@ export class RequestRepository {
   }
 
   /**
-   * Prunes expired pending requests sent by fromUserId where travelDate < cutoffDate.
+   * Prunes expired pending requests where travelDate < cutoffDate.
+   * If fromUserId is supplied, limits pruning to that user; otherwise prunes across all users.
    * Single atomic DELETE query. Returns the number of deleted rows.
    */
-  async deleteExpiredPending(fromUserId: string, cutoffDate: Date): Promise<number> {
+  async deleteExpiredPending(fromUserId?: string, cutoffDate?: Date): Promise<number> {
+    const where: Prisma.RequestWhereInput = {
+      status: 'pending',
+    };
+    if (fromUserId) {
+      where.fromUserId = fromUserId;
+    }
+    if (cutoffDate) {
+      where.travelDate = {
+        lt: cutoffDate,
+      };
+    }
     const result = await this.db.request.deleteMany({
-      where: {
-        fromUserId,
-        status: 'pending',
-        travelDate: {
-          lt: cutoffDate,
-        },
-      },
+      where,
     });
     return result.count;
   }

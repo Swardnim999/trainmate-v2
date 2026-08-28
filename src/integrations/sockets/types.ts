@@ -2,7 +2,7 @@
  * TrainMate v2 — Realtime Socket.IO Types
  */
 
-import { Message } from '../../lib/api/types';
+import { Message, CompanionRequest } from '../../lib/api/types';
 
 export interface PresenceUser {
   userId: string;
@@ -31,6 +31,11 @@ export interface ConversationUpdatedPayload {
   lastMessageTime: string | null;
 }
 
+export interface CompanionsUpdatedPayload {
+  requestId?: string;
+  status?: string;
+}
+
 export interface ServerToClientEvents {
   'message:new': (message: Message) => void;
   'last-read:update': (payload: LastReadUpdatePayload) => void;
@@ -39,6 +44,9 @@ export interface ServerToClientEvents {
   'presence:join': (user: PresenceUser) => void;
   'presence:leave': (user: PresenceUser) => void;
   typing: (payload: TypingPayload) => void;
+  'request:new': (request: CompanionRequest) => void;
+  'request:updated': (request: CompanionRequest) => void;
+  'companions:updated': (payload?: CompanionsUpdatedPayload) => void;
 }
 
 export interface ClientToServerEvents {

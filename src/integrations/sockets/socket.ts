@@ -11,8 +11,9 @@ import {
   TypingPayload,
   LastReadUpdatePayload,
   ConversationUpdatedPayload,
+  CompanionsUpdatedPayload,
 } from './types';
-import { Message } from '../../lib/api/types';
+import { Message, CompanionRequest } from '../../lib/api/types';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -160,6 +161,33 @@ class SocketManager {
     s.on('typing', handler);
     return () => {
       s.off('typing', handler);
+    };
+  }
+
+  onRequestNew(handler: (request: CompanionRequest) => void): () => void {
+    const s = this.getSocket();
+    if (!s) return () => {};
+    s.on('request:new', handler);
+    return () => {
+      s.off('request:new', handler);
+    };
+  }
+
+  onRequestUpdated(handler: (request: CompanionRequest) => void): () => void {
+    const s = this.getSocket();
+    if (!s) return () => {};
+    s.on('request:updated', handler);
+    return () => {
+      s.off('request:updated', handler);
+    };
+  }
+
+  onCompanionsUpdated(handler: (payload?: CompanionsUpdatedPayload) => void): () => void {
+    const s = this.getSocket();
+    if (!s) return () => {};
+    s.on('companions:updated', handler);
+    return () => {
+      s.off('companions:updated', handler);
     };
   }
 }

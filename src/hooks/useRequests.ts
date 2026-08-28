@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { requestsApi } from '@/lib/api/requests.api';
 import { CompanionRequest } from '@/lib/api/types';
 import { useAuth } from '@/hooks/useAuth';
+import { socketManager } from '@/integrations/sockets';
 
 export interface Request {
   id: string;
@@ -61,6 +62,18 @@ export const useRequests = () => {
 
   useEffect(() => {
     fetchRequests();
+
+    const unsubNew = socketManager.onRequestNew(() => {
+      fetchRequests();
+    });
+    const unsubUpdated = socketManager.onRequestUpdated(() => {
+      fetchRequests();
+    });
+
+    return () => {
+      unsubNew();
+      unsubUpdated();
+    };
   }, [fetchRequests]);
 
   // Get request status between current user and another user for a specific journey

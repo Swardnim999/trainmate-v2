@@ -9,7 +9,7 @@ describe('AuthzCanaryProbe', () => {
       if (url.endsWith('/health')) {
         return new Response(JSON.stringify({ status: 'ok', uptime: 123 }), { status: 200 });
       }
-      if (url.endsWith('/journeys')) {
+      if (url.endsWith('/journeys') || url.endsWith('/journeys/me')) {
         return new Response(JSON.stringify({ error: 'UNAUTHORIZED' }), { status: 401 });
       }
       if (url.includes('/profiles/')) {

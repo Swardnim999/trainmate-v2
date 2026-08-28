@@ -88,12 +88,12 @@ export class AuthzCanaryProbe {
   /** Probe 2: Unauthenticated requests to protected endpoints return 401 UNAUTHORIZED */
   private async probeUnauthenticatedRejection() {
     try {
-      const res = await fetch(`${this.apiUrl}/journeys`);
+      const res = await fetch(`${this.apiUrl}/journeys/me`);
       if (res.status === 401) {
         this.record({
           invariant: 'INV-2: Unauthenticated Endpoint Gate',
           passed: true,
-          details: 'GET /journeys without token correctly returned 401',
+          details: 'GET /journeys/me without token correctly returned 401',
         });
       } else {
         this.record({
@@ -187,10 +187,10 @@ if (process.argv[1]?.endsWith('authz-probe.ts') || process.argv[1]?.endsWith('au
       console.log(`Canary Probe Overall Result: ${allPassed ? 'ALL INVARIANTS SATISFIED' : 'INVARIANT VIOLATION DETECTED'}`);
       console.log(`Probes Run: ${results.length}, Passed: ${results.filter((r) => r.passed).length}`);
       console.log('====================================================');
-      process.exit(allPassed ? 0 : 1);
+      process.exitCode = allPassed ? 0 : 1;
     })
     .catch((err) => {
       console.error('Fatal canary probe execution failure:', err);
-      process.exit(1);
+      process.exitCode = 1;
     });
 }

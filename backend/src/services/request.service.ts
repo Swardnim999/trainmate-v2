@@ -2,6 +2,8 @@ import type { PrismaClient, Request } from '@prisma/client';
 import { RequestRepository } from '../repositories/requests.repo.js';
 import { AccessService } from './access.service.js';
 import { AppError, NotFoundError } from '../utils/errors.js';
+import { RequestSerializer } from '../serializers/request.serializer.js';
+import type { RealtimeBroadcaster } from '../sockets/broadcaster.js';
 import { prisma } from '../lib/prisma.js';
 
 export interface CreateRequestDto {
@@ -17,20 +19,23 @@ export interface CreateRequestDto {
 export interface RequestServiceDeps {
   requests?: RequestRepository;
   access?: AccessService;
+  broadcaster?: RealtimeBroadcaster;
   db?: PrismaClient;
 }
 
 /**
  * RequestService — Business logic and state machine for travel companion requests
- * (Spec §3.2, §6.3, §9.4; Requests-Design §7).
+ * (Spec §3.2, §6.3, §9.4; Requests-Design §7; Post-Cutover-Hardening-Design §6.2).
  */
 export class RequestService {
   private readonly requests: RequestRepository;
   private readonly access: AccessService;
+  private readonly broadcaster?: RealtimeBroadcaster;
 
   constructor(deps: Partial<RequestServiceDeps> = {}) {
     this.requests = deps.requests ?? new RequestRepository(deps.db ?? prisma);
     this.access = deps.access ?? new AccessService({ db: deps.db ?? prisma });
+    this.broadcaster = deps.broadcaster;
   }
 
   /**
@@ -99,7 +104,7 @@ export class RequestService {
       );
     }
 
-    return this.requests.create({
+    const created = await this.requests.create({
       fromUserId: callerId,
       fromName: input.fromName ?? null,
       toUserId: input.toUserId,
@@ -110,6 +115,12 @@ export class RequestService {
       destinationStation: input.destinationStation ?? null,
       status: 'pending',
     });
+
+    if (this.broadcaster) {
+      this.broadcaster.broadcastRequestNew(created.toUserId, RequestSerializer.toResponse(created));
+    }
+
+    return created;
   }
 
   /**
@@ -193,6 +204,17 @@ export class RequestService {
       );
     }
 
+    if (this.broadcaster) {
+      const serialized = RequestSerializer.toResponse(updated);
+      this.broadcaster.broadcastRequestUpdated([updated.fromUserId, updated.toUserId], serialized);
+      if (newStatus === 'accepted') {
+        this.broadcaster.broadcastCompanionsUpdated([updated.fromUserId, updated.toUserId], {
+          requestId: updated.id,
+          status: 'accepted',
+        });
+      }
+    }
+
     return updated;
   }
 
@@ -205,18 +227,32 @@ export class RequestService {
    * 3. Hard deletes the record. Returns 404 to mask existence on unauthorized attempts.
    */
   async cancelRequest(callerId: string, requestId: string): Promise<void> {
+    let existing: Request | null = null;
+    if (this.broadcaster) {
+      existing = await this.requests.findById(requestId);
+    }
+
     const deleted = await this.requests.deletePendingByIdAndOwner(requestId, callerId);
     if (!deleted) {
       // Either doesn't exist, not owned by caller, or not in pending status -> 404 masks existence
       throw new NotFoundError('Request not found');
     }
+
+    if (this.broadcaster && existing) {
+      const serialized = RequestSerializer.toResponse({ ...existing, status: 'cancelled' });
+      this.broadcaster.broadcastRequestUpdated(
+        [existing.fromUserId, existing.toUserId],
+        serialized,
+      );
+    }
   }
 
   /**
-   * Prunes expired pending requests sent by caller (POST /requests/cleanup-expired).
+   * Prunes expired pending requests.
+   * If callerId is 'system-cron', sweeps across all users; otherwise prunes for caller.
    * Executes a single atomic DELETE query eliminating TOCTOU race conditions.
    */
-  async cleanupExpiredRequests(callerId: string, cutoffDateStr?: string): Promise<number> {
+  async cleanupExpiredRequests(callerId?: string, cutoffDateStr?: string): Promise<number> {
     let cutoff: Date;
     if (cutoffDateStr) {
       cutoff = new Date(cutoffDateStr);
@@ -227,6 +263,7 @@ export class RequestService {
       cutoff = d;
     }
 
-    return this.requests.deleteExpiredPending(callerId, cutoff);
+    const fromUserId = callerId === 'system-cron' || !callerId ? undefined : callerId;
+    return this.requests.deleteExpiredPending(fromUserId, cutoff);
   }
 }
