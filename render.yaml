@@ -1,0 +1,49 @@
+# ==============================================================================
+# TrainMate v2 — Render Blueprint Specification (Free Tier)
+# ==============================================================================
+# Declarative infrastructure definition for deploying the TrainMate backend as a
+# Render Free Web Service ($0/month).
+#
+# Web Service Specification:
+# - Root Directory: backend
+# - Runtime: Node.js (>=20.0.0)
+# - Plan: Free (512 MB RAM, 0.1 CPU, automatic TLS)
+# - Health Check Path: /health
+# - WebSockets: Enabled natively over HTTPS (Socket.IO 4)
+# ==============================================================================
+
+services:
+  - type: web
+    name: trainmate-api
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    rootDir: backend
+    buildCommand: npm ci && npm run prisma:generate && npm run build
+    startCommand: node dist/index.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: TRUST_PROXY_HOPS
+        value: 1
+      - key: LOG_LEVEL
+        value: info
+      - key: CORS_ORIGIN
+        sync: false
+      - key: API_PUBLIC_ORIGIN
+        sync: false
+      - key: AUTH_ALLOWED_REDIRECT_ORIGINS
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: EMAIL_PROVIDER
+        value: console
+      - key: EMAIL_FROM
+        value: TrainMate <noreply@trainmate.in>
